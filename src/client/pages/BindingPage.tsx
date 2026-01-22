@@ -55,7 +55,7 @@ export default function BindingPage({ lineUserId, onSuccess }: Props) {
       <p>請輸入統編後點擊查詢，並選擇公司。</p>
       <Form 
         onFinish={onBind} 
-        initialValues={{ groupUBINo: '70584647' }}
+        initialValues={{ groupUBINo: '' }}
         footer={<Button block type='submit' color='primary' size='large' disabled={companies.length === 0}>綁定帳號</Button>}
       >
         <Form.Item 
@@ -73,6 +73,9 @@ export default function BindingPage({ lineUserId, onSuccess }: Props) {
           <Input 
             placeholder='例如: 12345678' 
             maxLength={8}
+            onChange={(val) => {
+              if (val.length === 8) fetchCompanies(val);
+            }}
             onBlur={(e) => {
               if (e.target.value.length === 8) fetchCompanies(e.target.value);
             }}
@@ -89,7 +92,7 @@ export default function BindingPage({ lineUserId, onSuccess }: Props) {
         )}
 
         <Form.Item name='empId' label='員工編號' rules={[{ required: true }]}>
-          <Input placeholder='例如: A0676' />
+          <Input placeholder='例如: A0001' />
         </Form.Item>
         <Form.Item name='password' label='密碼' rules={[{ required: true }]}>
           <Input type='password' placeholder='請輸入密碼' />
