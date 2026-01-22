@@ -3,6 +3,7 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import axios from 'axios';
 import path from 'path'; // Import path
+import { rateLimit } from 'express-rate-limit'; // Rate limiting
 import { XMLParser } from 'fast-xml-parser';
 import { PrismaClient } from '@prisma/client';
 import { encrypt, decrypt } from './encryption';
@@ -13,8 +14,32 @@ const prisma = new PrismaClient();
 const parser = new XMLParser();
 const PORT = process.env.PORT || 3001;
 
+// Enable proxy trust for rate limiter (Cloudflare/Nginx)
+app.set('trust proxy', 1);
+
+// --- Rate Limiters ---
+// General limiter: 100 requests per 15 minutes
+const apiLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000, 
+	limit: 100, 
+	standardHeaders: 'draft-8',
+	legacyHeaders: false,
+    message: { success: false, message: 'Too many requests, please try again later.' }
+});
+
+// Strict limiter for Auth/Binding: 5 attempts per 15 minutes
+const authLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000,
+	limit: 5,
+	standardHeaders: 'draft-8',
+	legacyHeaders: false,
+    message: { success: false, message: 'Too many login attempts, please try again in 15 minutes.' }
+});
+
 app.use(cors());
 app.use(bodyParser.json());
+// Apply general rate limit to all routes (API and static files)
+app.use(apiLimiter);
 
 // Serve Static Files (Frontend Build)
 const distPath = path.join(__dirname, '../../dist');
@@ -159,7 +184,7 @@ const HR104Service = {
     params.append('companyID', data.internalId);
     params.append('account', data.empId);
     params.append('language', 'zh-tw');
-    // 補上缺少的參數 (即使是空值)
+    // 補上缺少的參數
     params.append('viewID', '');
     params.append('EmpName', '');
     params.append('empID', '');
@@ -287,7 +312,8 @@ app.get('/api/check-binding', async (req, res) => {
   }
 });
 
-app.post('/api/bind', async (req, res) => {
+// Apply strict rate limiting to bind
+app.post('/api/bind', authLimiter, async (req, res) => {
   const { lineUserId, groupUBINo, companyID, empId, password } = req.body;
 
   if (!lineUserId || !groupUBINo || !companyID || !empId || !password) {
