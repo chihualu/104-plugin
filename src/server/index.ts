@@ -106,7 +106,7 @@ const HR104Service = {
     reason: string
   }) => {
     if (data.companyId === 'TEST') {
-        console.log(`[Test Mode] Apply Form for ${data.date}`);
+        console.log('[Test Mode] Apply Form for', data.date);
         return true;
     }
 
@@ -295,6 +295,7 @@ app.get('/api/check-binding', async (req, res) => {
   }
 
   try {
+    console.log('[API] GET /check-binding', { lineUserId });
     const user = await prisma.userBinding.findUnique({
       where: { lineUserId },
     });
@@ -380,9 +381,9 @@ app.post('/api/check-in', async (req, res) => {
           reason: reason
         });
         results.push({ date, success: true });
-        console.log(`[API] Applied for ${date} success.`);
+        console.log('[API] Applied for %s success.', date);
       } catch (e: any) {
-        console.error(`[API] Apply for ${date} failed:`, e.message);
+        console.error('[API] Apply failed for %s: %s', date, e.message);
         results.push({ date, success: false, error: e.message });
       }
       if (date !== dates[dates.length - 1]) await sleep(1000);
