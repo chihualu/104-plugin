@@ -1,0 +1,59 @@
+import { AutoCenter, Button, Card, Grid, Space } from 'antd-mobile';
+import { CalendarOutline, CheckCircleOutline, FileOutline, SetOutline, TeamOutline } from 'antd-mobile-icons';
+
+interface Props {
+  empId: string;
+  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'ADMIN') => void;
+}
+
+export default function DashboardPage({ empId, onNavigate }: Props) {
+  return (
+    <div style={{ padding: 20, background: '#f5f5f5', minHeight: '100vh' }}>
+      <AutoCenter style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: 0 }}>104 eHR 助手</h2>
+      </AutoCenter>
+
+      <Card title='使用者資訊' style={{ marginBottom: 20 }}>
+        <Space align='center'>
+            <CheckCircleOutline color='var(--adm-color-success)' fontSize={24} />
+            <span style={{ fontSize: 18, fontWeight: 'bold' }}>{empId}</span>
+            <span style={{ color: '#666' }}>服務運行中</span>
+        </Space>
+      </Card>
+
+      <Grid columns={2} gap={16}>
+        <Grid.Item onClick={() => onNavigate('AUDIT')}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <FileOutline fontSize={32} color='#ff4d4f' />
+              <div style={{ marginTop: 8 }}>表單簽核</div>
+          </Card>
+        </Grid.Item>
+
+        <Grid.Item onClick={() => onNavigate('CHECK_IN')}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <CalendarOutline fontSize={32} color='#1677ff' />
+              <div style={{ marginTop: 8 }}>補打卡</div>
+          </Card>
+        </Grid.Item>
+        
+        <Grid.Item onClick={() => onNavigate('ADMIN')}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <TeamOutline fontSize={32} color='#00b578' />
+              <div style={{ marginTop: 8 }}>使用統計</div>
+          </Card>
+        </Grid.Item>
+
+        <Grid.Item onClick={() => onNavigate('SETTINGS')}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <SetOutline fontSize={32} color='#722ed1' />
+              <div style={{ marginTop: 8 }}>個人設定</div>
+          </Card>
+        </Grid.Item>
+      </Grid>
+
+      <div style={{ marginTop: 40, textAlign: 'center', color: '#999', fontSize: 12 }}>
+        v1.0.0 @ 104 eHR Optimization
+      </div>
+    </div>
+  );
+}

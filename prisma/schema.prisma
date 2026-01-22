@@ -17,6 +17,18 @@ model UserBinding {
   iv                String   // 加密用的向量
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-
+  
+  logs              UsageLog[]
+  
   @@index([lineUserId])
+}
+
+model UsageLog {
+  id        Int      @id @default(autoincrement())
+  user      UserBinding @relation(fields: [userId], references: [id])
+  userId    Int
+  action    String   // 'CHECK_IN' | 'AUDIT'
+  count     Int      // 筆數
+  details   String?  // 備註 (例如日期範圍)
+  createdAt DateTime @default(now())
 }
