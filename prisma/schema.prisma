@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model UserBinding {
+  id                Int      @id @default(autoincrement())
+  lineUserId        String   @unique
+  companyId         String?  // 統編 (groupUBINo)
+  internalCompanyId String?  // 內部 ID (companyID, e.g. "1")
+  empId             String?  // 員編 (account)
+  encryptedToken    String   // 存儲加密後的 104 Token
+  iv                String   // 加密用的向量
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([lineUserId])
+}
