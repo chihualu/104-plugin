@@ -2,8 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import axios from 'axios';
-import path from 'path'; // Import path
-import { rateLimit } from 'express-rate-limit'; // Rate limiting
+import path from 'path';
+import { rateLimit } from 'express-rate-limit';
 import { XMLParser } from 'fast-xml-parser';
 import { PrismaClient } from '@prisma/client';
 import { encrypt, decrypt } from './encryption';
@@ -18,7 +18,6 @@ const PORT = process.env.PORT || 3001;
 app.set('trust proxy', 1);
 
 // --- Rate Limiters ---
-// General limiter: 100 requests per 15 minutes
 const apiLimiter = rateLimit({
 	windowMs: 15 * 60 * 1000, 
 	limit: 100, 
@@ -27,7 +26,6 @@ const apiLimiter = rateLimit({
     message: { success: false, message: 'Too many requests, please try again later.' }
 });
 
-// Strict limiter for Auth/Binding: 5 attempts per 15 minutes
 const authLimiter = rateLimit({
 	windowMs: 15 * 60 * 1000,
 	limit: 5,
@@ -38,14 +36,23 @@ const authLimiter = rateLimit({
 
 app.use(cors());
 app.use(bodyParser.json());
-// Apply general rate limit to all routes (API and static files)
 app.use(apiLimiter);
 
-// Serve Static Files (Frontend Build)
 const distPath = path.join(__dirname, '../../dist');
 app.use(express.static(distPath));
 
 const BASE_URL = 'https://pro104.provision.com.tw:8443/wfmobileweb/Service/eHRFlowMobileService.asmx';
+
+// --- Helpers ---
+const logUsage = async (userId: number, action: 'CHECK_IN' | 'AUDIT', count: number, details?: string) => {
+  try {
+    await prisma.usageLog.create({
+      data: { userId, action, count, details }
+    });
+  } catch (e) {
+    console.error('[DB Error] Log Usage failed:', e);
+  }
+};
 
 // --- Real 104 Service ---
 const HR104Service = {
@@ -54,19 +61,12 @@ const HR104Service = {
     params.append('groupUBINo', groupUBINo);
 
     const response = await axios.post(`${BASE_URL}/GetComapnyList`, params.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Requested-With': 'XMLHttpRequest',
-      }
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }
     });
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.string;
-    try {
-      return JSON.parse(rawJson).Tables[0].Rows;
-    } catch (e) {
-      return [];
-    }
+    try { return JSON.parse(rawJson).Tables[0].Rows; } catch (e) { return []; }
   },
 
   login: async (groupUBINo: string, companyID: string, empId: string, password: string) => {
@@ -79,10 +79,7 @@ const HR104Service = {
     params.append('credential', password);
 
     const response = await axios.post(`${BASE_URL}/Login`, params.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Requested-With': 'XMLHttpRequest',
-      }
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }
     });
 
     const jsonObj = parser.parse(response.data);
@@ -95,20 +92,8 @@ const HR104Service = {
     }
   },
 
-  applyCheckInForm: async (data: {
-    token: string,
-    companyId: string,
-    internalId: string,
-    empId: string,
-    date: string,
-    startTime: string,
-    endTime: string,
-    reason: string
-  }) => {
-    if (data.companyId === 'TEST') {
-        console.log('[Test Mode] Apply Form for', data.date);
-        return true;
-    }
+  applyCheckInForm: async (data: { token: string, companyId: string, internalId: string, empId: string, date: string, startTime: string, endTime: string, reason: string }) => {
+    if (data.companyId === 'TEST') return true;
 
     const formVars = {
       WorksheetId: "23",
@@ -132,23 +117,13 @@ const HR104Service = {
     params.append('fileuploadid', '');
 
     const response = await axios.post(`${BASE_URL}/RequestFormApply`, params.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'X-Requested-With': 'XMLHttpRequest',
-      }
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
     });
 
     const jsonObj = parser.parse(response.data);
-    const result = jsonObj.FunctionExecResult;
-
-    if (result && result.IsSuccess === true) {
-      return true;
-    } else {
-      throw new Error(result?.ReturnMessage || 'Apply failed');
-    }
+    if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
+    else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Apply failed');
   },
-
-  // --- Approval APIs ---
 
   getApprovalCategories: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
     const params = new URLSearchParams();
@@ -172,9 +147,7 @@ const HR104Service = {
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) return [];
-    try {
-      return JSON.parse(rawJson).Tables[0].Rows || [];
-    } catch (e) { return []; }
+    try { return JSON.parse(rawJson).Tables[0].Rows || []; } catch (e) { return []; }
   },
 
   getApprovalList: async (data: { token: string, companyId: string, internalId: string, empId: string, worksheetId: string }) => {
@@ -184,11 +157,9 @@ const HR104Service = {
     params.append('companyID', data.internalId);
     params.append('account', data.empId);
     params.append('language', 'zh-tw');
-    // 補上缺少的參數
     params.append('viewID', '');
     params.append('EmpName', '');
     params.append('empID', '');
-    
     params.append('startDate', '2000/01/01');
     params.append('endDate', '2050/12/31');
     params.append('worksheetID', data.worksheetId);
@@ -226,12 +197,9 @@ const HR104Service = {
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) throw new Error('Failed to get detail data');
-    
     try {
       const rows = JSON.parse(rawJson).Tables[0].Rows;
-      if (Array.isArray(rows) && rows.length > 0) {
-        return rows[0].ApprovalKey;
-      }
+      if (Array.isArray(rows) && rows.length > 0) return rows[0].ApprovalKey;
       throw new Error('No ApprovalKey found');
     } catch (e) { throw new Error('Parse detail failed'); }
   },
@@ -264,11 +232,8 @@ const HR104Service = {
     });
 
     const jsonObj = parser.parse(response.data);
-    if (jsonObj.FunctionExecResult?.IsSuccess === true) {
-      return true;
-    } else {
-      throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Approval failed');
-    }
+    if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
+    else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Approval failed');
   }
 };
 
@@ -276,9 +241,7 @@ const HR104Service = {
 
 app.get('/api/companies', async (req, res) => {
   const { groupUBINo } = req.query;
-  if (!groupUBINo || typeof groupUBINo !== 'string') {
-    return res.status(400).json({ success: false, message: 'Missing groupUBINo' });
-  }
+  if (!groupUBINo || typeof groupUBINo !== 'string') return res.status(400).json({ success: false, message: 'Missing groupUBINo' });
   try {
     const list = await HR104Service.getCompanyList(groupUBINo);
     res.json({ success: true, data: list });
@@ -289,37 +252,20 @@ app.get('/api/companies', async (req, res) => {
 
 app.get('/api/check-binding', async (req, res) => {
   const { lineUserId } = req.query;
-  
-  if (!lineUserId || typeof lineUserId !== 'string') {
-    return res.status(400).json({ success: false, message: 'Missing lineUserId' });
-  }
-
+  if (!lineUserId || typeof lineUserId !== 'string') return res.status(400).json({ success: false, message: 'Missing lineUserId' });
   try {
     console.log('[API] GET /check-binding', { lineUserId });
-    const user = await prisma.userBinding.findUnique({
-      where: { lineUserId },
-    });
-
-    res.json({
-      success: true,
-      data: {
-        isBound: !!user,
-        empId: user?.empId
-      }
-    });
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+    res.json({ success: true, data: { isBound: !!user, empId: user?.empId } });
   } catch (error: any) {
     console.error('[API Error] check-binding:', error.message);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
   }
 });
 
-// Apply strict rate limiting to bind
 app.post('/api/bind', authLimiter, async (req, res) => {
   const { lineUserId, groupUBINo, companyID, empId, password } = req.body;
-
-  if (!lineUserId || !groupUBINo || !companyID || !empId || !password) {
-    return res.status(400).json({ success: false, message: 'Missing fields' });
-  }
+  if (!lineUserId || !groupUBINo || !companyID || !empId || !password) return res.status(400).json({ success: false, message: 'Missing fields' });
 
   try {
     const token = await HR104Service.login(groupUBINo, companyID, empId, password);
@@ -343,23 +289,24 @@ app.post('/api/bind', authLimiter, async (req, res) => {
         iv,
       },
     });
-
     res.json({ success: true, message: 'Binding successful' });
   } catch (error: any) {
     res.status(401).json({ success: false, message: error.message });
   }
 });
 
+// Stream Check-in
 app.post('/api/check-in', async (req, res) => {
   const { lineUserId, dates, timeStart, timeEnd, reason } = req.body as CheckInPayload;
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
 
   try {
-    const user = await prisma.userBinding.findUnique({
-      where: { lineUserId },
-    });
-
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
     if (!user || !user.companyId || !user.empId || !user.internalCompanyId) {
-      return res.status(401).json({ success: false, message: 'User not bound or missing info' });
+      res.write(JSON.stringify({ type: 'error', message: 'User not bound or missing info' }) + '\n');
+      return res.end();
     }
 
     const token = decrypt(user.encryptedToken, user.iv);
@@ -367,8 +314,10 @@ app.post('/api/check-in', async (req, res) => {
     const fmtEnd = (timeEnd || '18:00').replace(':', '');
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-    const results = [];
-    for (const date of dates) {
+    let successCount = 0;
+    res.write(JSON.stringify({ type: 'start', total: dates.length }) + '\n');
+
+    for (const [index, date] of dates.entries()) {
       try {
         await HR104Service.applyCheckInForm({
           token,
@@ -380,28 +329,30 @@ app.post('/api/check-in', async (req, res) => {
           endTime: fmtEnd,
           reason: reason
         });
-        results.push({ date, success: true });
+        successCount++;
+        res.write(JSON.stringify({ type: 'progress', index: index + 1, total: dates.length, key: date, status: 'success' }) + '\n');
         console.log('[API] Applied for %s success.', date);
       } catch (e: any) {
         console.error('[API] Apply failed for %s: %s', date, e.message);
-        results.push({ date, success: false, error: e.message });
+        res.write(JSON.stringify({ type: 'progress', index: index + 1, total: dates.length, key: date, status: 'error', error: e.message }) + '\n');
       }
-      if (date !== dates[dates.length - 1]) await sleep(1000);
+      if (index !== dates.length - 1) await sleep(500);
     }
 
-    const successCount = results.filter(r => r.success).length;
-    res.json({ 
-      success: true, 
-      message: `已處理 ${results.length} 筆申請 (成功: ${successCount})`,
-      results 
-    });
+    // Log Usage
+    if (successCount > 0) {
+      logUsage(user.id, 'CHECK_IN', successCount, `Dates: ${dates.join(', ')}`);
+    }
 
+    res.write(JSON.stringify({ type: 'done', successCount }) + '\n');
+    res.end();
   } catch (error: any) {
-    console.error('[Check-in Error]', error.message);
-    res.status(500).json({ success: false, message: error.message || 'Check-in failed' });
+    res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+    res.end();
   }
 });
 
+// Audit List
 app.get('/api/audit/list', async (req, res) => {
   const { lineUserId } = req.query;
   if (!lineUserId || typeof lineUserId !== 'string') return res.status(400).json({ success: false, message: 'Missing lineUserId' });
@@ -414,7 +365,6 @@ app.get('/api/audit/list', async (req, res) => {
     const baseData = { token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId! };
 
     const categories = await HR104Service.getApprovalCategories(baseData);
-    
     let allItems: any[] = [];
     for (const cat of categories) {
       if (parseInt(cat.wsdCount) > 0) {
@@ -423,40 +373,79 @@ app.get('/api/audit/list', async (req, res) => {
         allItems = allItems.concat(list);
       }
     }
-
     res.json({ success: true, data: allItems });
   } catch (error: any) {
-    console.error(error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
+// Stream Audit Approve
 app.post('/api/audit/approve', async (req, res) => {
   const { lineUserId, approvalKeys } = req.body;
   if (!lineUserId || !Array.isArray(approvalKeys)) return res.status(400).json({ success: false, message: 'Invalid payload' });
 
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
   try {
     const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
-    if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
+    if (!user || !user.internalCompanyId) {
+      res.write(JSON.stringify({ type: 'error', message: 'User not bound' }) + '\n');
+      return res.end();
+    }
 
     const token = decrypt(user.encryptedToken, user.iv);
     const baseData = { token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId! };
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-    const results = [];
-    for (const key of approvalKeys) {
+    let successCount = 0;
+    res.write(JSON.stringify({ type: 'start', total: approvalKeys.length }) + '\n');
+
+    for (const [index, key] of approvalKeys.entries()) {
       try {
         await HR104Service.approveWorkflow({ ...baseData, approvalKey: key });
-        results.push({ key, success: true });
+        successCount++;
+        res.write(JSON.stringify({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'success' }) + '\n');
       } catch (e: any) {
-        results.push({ key, success: false, error: e.message });
+        res.write(JSON.stringify({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'error', error: e.message }) + '\n');
       }
-      if (key !== approvalKeys[approvalKeys.length - 1]) await sleep(1000);
+      if (index !== approvalKeys.length - 1) await sleep(500);
     }
 
-    const successCount = results.filter(r => r.success).length;
-    res.json({ success: true, message: `已簽核 ${successCount}/${results.length} 筆`, results });
+    // Log Usage
+    if (successCount > 0) {
+      logUsage(user.id, 'AUDIT', successCount, `Keys: ${approvalKeys.length}`);
+    }
 
+    res.write(JSON.stringify({ type: 'done', successCount }) + '\n');
+    res.end();
+  } catch (error: any) {
+    res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+    res.end();
+  }
+});
+
+// Admin Users Stats
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const users = await prisma.userBinding.findMany({
+      include: { logs: true },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    const stats = users.map(u => {
+      const checkInTotal = u.logs.filter(l => l.action === 'CHECK_IN').reduce((acc, cur) => acc + cur.count, 0);
+      const auditTotal = u.logs.filter(l => l.action === 'AUDIT').reduce((acc, cur) => acc + cur.count, 0);
+      return {
+        empId: u.empId,
+        companyId: u.companyId,
+        lastActive: u.updatedAt,
+        checkInTotal,
+        auditTotal
+      };
+    });
+    res.json({ success: true, data: stats });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
