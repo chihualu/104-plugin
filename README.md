@@ -5,54 +5,44 @@
 ## 🚀 核心功能
 
 *   **LINE Login 整合**: 自動辨識使用者身分，無需重複登入。
-*   **統編自動查詢**: 輸入統編即可動態選擇所屬公司，降低輸入錯誤。
-*   **批次補打卡申請**: 
+*   **即時 GPS 打卡 (新)**: 
+    *   自動抓取手機 GPS 座標並轉換為地址（供參考）。
+    *   一鍵完成 104 即時打卡。
+*   **補打卡申請**: 
     *   支援日期多選（可跳選非連續日期）。
     *   自訂上班、下班時間。
-    *   一鍵發送多筆申請單，並自動加入間隔以符合 API 限制。
-*   **自動表單簽核**:
+    *   一鍵批次發送申請單（間隔 0.5 秒）。
+*   **表單簽核**:
     *   自動抓取所有分類的待簽核單據。
     *   支援全選與一鍵批次核准。
-*   **安全加密**: 所有 104 Token 均採 AES-256-CBC 加密存儲於資料庫中。
-*   **極速入口**: 支援透過 NFC 或 QR Code 直接開啟 LIFF 進行快速打卡流程。
+*   **薪資查詢 (新)**: 
+    *   支援二段式安全驗證。
+    *   按年份查詢歷史薪資單並顯示 HTML 詳情。
+*   **假勤紀錄 (新)**: 
+    *   在個人資訊頁面即時顯示各類假別（事假、病假、特休）之剩餘時數。
+*   **使用統計 (新)**: 
+    *   管理員可按公司維度查看系統使用總量。
+*   **靈活配置**: 支援透過 `config/104.config.json` 客製化不同公司的表單 ID 與搜尋關鍵字。
 
 ## 🛠 技術堆疊
 
-*   **前端**: React 18, TypeScript, Vite, Ant Design Mobile
-*   **後端**: Node.js (Express), tsx
-*   **資料庫**: PostgreSQL
-*   **ORM**: Prisma
+*   **前端**: React 18, Vite, Ant Design Mobile (Lazy Loading)
+*   **後端**: Node.js (Express), Prisma (PostgreSQL)
 *   **容器化**: Docker, Docker Compose
-*   **SDK**: @line/liff
 
 ## 📦 快速開始
 
-### 1. 環境準備
-請確保您的機器已安裝：
-*   Docker & Docker Compose
-*   Node.js 20+ (用於本機開發)
-
-### 2. 設定環境變數
-將 `.env.example` 複製為 `.env` 並填入您的資訊：
+### 1. 設定環境變數
 ```bash
 cp .env.example .env
+cp config/104.config.example.json config/104.config.json
 ```
-*   `LIFF_ID`: 您的 LINE LIFF ID。
-*   `ENCRYPTION_KEY`: 64 字元的十六進位字串（用於加密 Token）。
 
-### 3. 啟動服務 (Docker)
-使用 Docker 一鍵啟動全環境：
+### 2. 啟動服務 (Docker)
 ```bash
 docker-compose up --build -d
 ```
 
-啟動後即可透過 `http://localhost:3000` (或您的 Cloudflare Tunnel 網域) 進行存取。
-
-### 4. 資料庫遷移 (第一次啟動需執行)
-```bash
-npx prisma migrate dev
-```
-
 ## 📝 授權協議
 
-本專案採用 MIT 授權協議。詳見 [LICENSE](./LICENSE) 檔案。
+本專案採用 MIT 授權協議。

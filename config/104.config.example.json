@@ -1,0 +1,24 @@
+{
+  "companies": [
+    {
+      "groupUBINo": "YOUR_COMPANY_UBI_NO",
+      "companyID": "1",
+      "checkIn": {
+        "fixedWorksheetId": "23",
+        "searchKeyword": "刷卡"
+      }
+    },
+    {
+      "groupUBINo": "ANOTHER_COMPANY_UBI",
+      "companyID": "*",
+      "checkIn": {
+        "searchKeyword": "忘刷"
+      }
+    }
+  ],
+  "default": {
+    "checkIn": {
+      "searchKeyword": "刷卡"
+    }
+  }
+}

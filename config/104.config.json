@@ -1,0 +1,16 @@
+{
+  "companies": [
+    {
+      "groupUBINo": "70584647",
+      "companyID": "*",
+      "checkIn": {
+        "fixedWorksheetId": "23"
+      }
+    }
+  ],
+  "default": {
+    "checkIn": {
+      "searchKeyword": "刷卡"
+    }
+  }
+}

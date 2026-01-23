@@ -10,11 +10,13 @@ const InitPage = lazy(() => import('./pages/InitPage'));
 const BindingPage = lazy(() => import('./pages/BindingPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const CheckInPage = lazy(() => import('./pages/CheckInPage'));
+const CheckInNowPage = lazy(() => import('./pages/CheckInNowPage'));
 const AuditPage = lazy(() => import('./pages/AuditPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const SalaryPage = lazy(() => import('./pages/SalaryPage'));
 
-type AppState = 'INIT' | 'BINDING' | 'DASHBOARD' | 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'ADMIN';
+type AppState = 'INIT' | 'BINDING' | 'DASHBOARD' | 'CHECK_IN' | 'CHECK_IN_NOW' | 'AUDIT' | 'SETTINGS' | 'USAGES' | 'SALARY';
 
 export const App = () => {
   const [state, setState] = useState<AppState>('INIT');
@@ -36,12 +38,9 @@ export const App = () => {
           return;
         }
 
-        setDebugMsg('Calling liff.init()...');
         await liff.init({ liffId });
-        setDebugMsg('LIFF init done. Checking login...');
 
         if (!liff.isLoggedIn()) {
-          setDebugMsg('Not logged in. Redirecting...');
           liff.login();
           return;
         }
@@ -50,7 +49,6 @@ export const App = () => {
         const userId = profile.userId;
 
         if (userId) {
-            setDebugMsg(`Got UserID: ${userId}. Checking binding...`);
             setLineUserId(userId);
             checkBinding(userId);
         }
@@ -74,13 +72,8 @@ export const App = () => {
       }
     } catch (err: any) {
       console.error(err);
-      Toast.show(`連線錯誤: ${err.message}`);
       setState('BINDING'); 
     }
-  };
-
-  const handleLogout = () => {
-    setState('BINDING');
   };
 
   const LoadingFallback = (
@@ -94,48 +87,40 @@ export const App = () => {
       {state === 'INIT' && <InitPage debugMsg={debugMsg} />}
       
       {state === 'BINDING' && (
-        <BindingPage 
-          lineUserId={lineUserId} 
-          onSuccess={() => {
-            // Re-check binding to get empId
-            checkBinding(lineUserId);
-          }} 
-        />
+        <BindingPage lineUserId={lineUserId} onSuccess={() => checkBinding(lineUserId)} />
       )}
 
       {state === 'DASHBOARD' && (
-        <DashboardPage 
-          empId={empId} 
-          onNavigate={(page) => setState(page)} 
-        />
+        <DashboardPage empId={empId} onNavigate={(page) => setState(page)} />
+      )}
+
+      {state === 'CHECK_IN_NOW' && (
+        <CheckInNowPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
       )}
 
       {state === 'CHECK_IN' && (
-        <CheckInPage 
-          lineUserId={lineUserId} 
-          onBack={() => setState('DASHBOARD')} 
-        />
+        <CheckInPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
       )}
 
       {state === 'AUDIT' && (
-        <AuditPage 
-          lineUserId={lineUserId} 
-          onBack={() => setState('DASHBOARD')} 
-        />
+        <AuditPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+      )}
+
+      {state === 'SALARY' && (
+        <SalaryPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
       )}
 
       {state === 'SETTINGS' && (
         <SettingsPage 
+          lineUserId={lineUserId}
           empId={empId} 
           onBack={() => setState('DASHBOARD')} 
-          onLogout={handleLogout}
+          onLogout={() => setState('BINDING')}
         />
       )}
 
-      {state === 'ADMIN' && (
-        <AdminPage 
-          onBack={() => setState('DASHBOARD')}
-        />
+      {state === 'USAGES' && (
+        <AdminPage onBack={() => setState('DASHBOARD')} />
       )}
     </Suspense>
   );

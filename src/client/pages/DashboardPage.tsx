@@ -1,9 +1,9 @@
-import { AutoCenter, Button, Card, Grid, Space } from 'antd-mobile';
-import { CalendarOutline, CheckCircleOutline, FileOutline, SetOutline, TeamOutline } from 'antd-mobile-icons';
+import { AutoCenter, Card, Grid, Space } from 'antd-mobile';
+import { CalendarOutline, CheckCircleOutline, FileOutline, SetOutline, TeamOutline, LocationOutline } from 'antd-mobile-icons';
 
 interface Props {
   empId: string;
-  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'ADMIN') => void;
+  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'USAGES' | 'SALARY' | 'CHECK_IN_NOW') => void;
 }
 
 export default function DashboardPage({ empId, onNavigate }: Props) {
@@ -22,10 +22,10 @@ export default function DashboardPage({ empId, onNavigate }: Props) {
       </Card>
 
       <Grid columns={2} gap={16}>
-        <Grid.Item onClick={() => onNavigate('AUDIT')}>
+        <Grid.Item onClick={() => onNavigate('CHECK_IN_NOW')}>
           <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <FileOutline fontSize={32} color='#ff4d4f' />
-              <div style={{ marginTop: 8 }}>表單簽核</div>
+              <LocationOutline fontSize={32} color='#00b578' />
+              <div style={{ marginTop: 8 }}>即時打卡</div>
           </Card>
         </Grid.Item>
 
@@ -35,10 +35,24 @@ export default function DashboardPage({ empId, onNavigate }: Props) {
               <div style={{ marginTop: 8 }}>補打卡</div>
           </Card>
         </Grid.Item>
-        
-        <Grid.Item onClick={() => onNavigate('ADMIN')}>
+
+        <Grid.Item onClick={() => onNavigate('AUDIT')}>
           <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <TeamOutline fontSize={32} color='#00b578' />
+              <FileOutline fontSize={32} color='#ff4d4f' />
+              <div style={{ marginTop: 8 }}>表單簽核</div>
+          </Card>
+        </Grid.Item>
+        
+        <Grid.Item onClick={() => onNavigate('SALARY')}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <FileOutline fontSize={32} color='#ff8f1f' />
+              <div style={{ marginTop: 8 }}>薪資查詢</div>
+          </Card>
+        </Grid.Item>
+
+        <Grid.Item onClick={() => onNavigate('USAGES')}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <TeamOutline fontSize={32} color='#555' />
               <div style={{ marginTop: 8 }}>使用統計</div>
           </Card>
         </Grid.Item>
@@ -46,13 +60,13 @@ export default function DashboardPage({ empId, onNavigate }: Props) {
         <Grid.Item onClick={() => onNavigate('SETTINGS')}>
           <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
               <SetOutline fontSize={32} color='#722ed1' />
-              <div style={{ marginTop: 8 }}>個人設定</div>
+              <div style={{ marginTop: 8 }}>個人資訊</div>
           </Card>
         </Grid.Item>
       </Grid>
 
       <div style={{ marginTop: 40, textAlign: 'center', color: '#999', fontSize: 12 }}>
-        v1.0.0 @ 104 eHR Optimization
+        v1.1.0 @ 104 eHR Optimization
       </div>
     </div>
   );
