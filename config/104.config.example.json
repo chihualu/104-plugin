@@ -1,0 +1,15 @@
+{
+  "companies": {
+    "YOUR_COMPANY_UBI_NO": {
+      "checkIn": {
+        "fixedWorksheetId": "23",
+        "searchKeyword": "刷卡"
+      }
+    }
+  },
+  "default": {
+    "checkIn": {
+      "searchKeyword": "刷卡"
+    }
+  }
+}

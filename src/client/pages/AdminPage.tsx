@@ -8,14 +8,14 @@ interface Props {
 }
 
 export default function AdminPage({ onBack }: Props) {
-  const [users, setUsers] = useState<any[]>([]);
+  const [stats, setStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    axios.get('/api/admin/users')
+    axios.get('/api/usages/stats')
       .then(res => {
         if (res.data.success) {
-          setUsers(res.data.data);
+          setStats(res.data.data);
         }
       })
       .finally(() => setLoading(false));
@@ -23,27 +23,26 @@ export default function AdminPage({ onBack }: Props) {
 
   return (
     <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
-      <NavBar onBack={onBack}>使用統計</NavBar>
+      <NavBar onBack={onBack}>使用統計 (公司維度)</NavBar>
       
       {loading ? (
         <AutoCenter style={{ marginTop: 50 }}>
           <LoopOutline fontSize={32} spin />
         </AutoCenter>
       ) : (
-        <List header={`共 ${users.length} 位使用者`}>
-          {users.map((u, idx) => (
+        <List header={`共 ${stats.length} 家公司`}>
+          {stats.map((s, idx) => (
             <List.Item 
               key={idx}
-              description={new Date(u.lastActive).toLocaleString()}
               extra={
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 16, fontWeight: 'bold', color: '#1677ff' }}>補卡: {u.checkInTotal}</div>
-                  <div style={{ fontSize: 16, fontWeight: 'bold', color: '#ff4d4f' }}>簽核: {u.auditTotal}</div>
+                  <div style={{ fontSize: 16, fontWeight: 'bold', color: '#1677ff' }}>補卡: {s.checkInTotal}</div>
+                  <div style={{ fontSize: 16, fontWeight: 'bold', color: '#ff4d4f' }}>簽核: {s.auditTotal}</div>
                 </div>
               }
             >
-              <div style={{ fontWeight: 'bold', fontSize: 18 }}>{(u.empId || '').toUpperCase()}</div>
-              <Tag color='primary' fill='outline' style={{ marginTop: 4 }}>{u.companyId}</Tag>
+              <div style={{ fontWeight: 'bold', fontSize: 18 }}>{s.companyId}</div>
+              <Tag color='success' fill='outline' style={{ marginTop: 4 }}>ID: {s.internalId}</Tag>
             </List.Item>
           ))}
         </List>

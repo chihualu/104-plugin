@@ -3,16 +3,33 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import axios from 'axios';
 import path from 'path';
+import fs from 'fs';
 import { rateLimit } from 'express-rate-limit';
 import { XMLParser } from 'fast-xml-parser';
 import { PrismaClient } from '@prisma/client';
 import { encrypt, decrypt } from './encryption';
 import { BindPayload, CheckInPayload } from '../shared/types';
+import { COMPANY_CONFIGS, DEFAULT_CONFIG } from './company-config';
 
 const app = express();
 const prisma = new PrismaClient();
 const parser = new XMLParser();
 const PORT = process.env.PORT || 3001;
+
+// Load Config
+let APP_CONFIG: any = { default: { checkIn: { searchKeyword: '刷卡' } } };
+try {
+  const configPath = path.join(__dirname, '../../config/104.config.json');
+  if (fs.existsSync(configPath)) {
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    APP_CONFIG = JSON.parse(raw);
+    console.log('[Config] Loaded 104.config.json');
+  } else {
+    console.warn('[Config] No config found, using defaults.');
+  }
+} catch (e) {
+  console.error('[Config] Failed to load config:', e);
+}
 
 // Enable proxy trust for rate limiter (Cloudflare/Nginx)
 app.set('trust proxy', 1);
@@ -56,6 +73,26 @@ const logUsage = async (userId: number, action: 'CHECK_IN' | 'AUDIT', count: num
 
 // --- Real 104 Service ---
 const HR104Service = {
+  getRequestWorksheets: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
+    const params = new URLSearchParams();
+    params.append('key', data.token);
+    params.append('groupUBINo', data.companyId);
+    params.append('companyID', data.internalId);
+    params.append('account', data.empId);
+    params.append('language', 'zh-tw');
+
+    const response = await axios.post(`${BASE_URL}/GetRequestListByWorksheet`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }
+    });
+
+    const jsonObj = parser.parse(response.data);
+    const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
+    if (!rawJson) return [];
+    try {
+      return JSON.parse(rawJson).Tables[0].Rows || [];
+    } catch (e) { return []; }
+  },
+
   getCompanyList: async (groupUBINo: string) => {
     const params = new URLSearchParams();
     params.append('groupUBINo', groupUBINo);
@@ -66,7 +103,9 @@ const HR104Service = {
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.string;
-    try { return JSON.parse(rawJson).Tables[0].Rows; } catch (e) { return []; }
+    try {
+      return JSON.parse(rawJson).Tables[0].Rows;
+    } catch (e) { return []; }
   },
 
   login: async (groupUBINo: string, companyID: string, empId: string, password: string) => {
@@ -95,8 +134,31 @@ const HR104Service = {
   applyCheckInForm: async (data: { token: string, companyId: string, internalId: string, empId: string, date: string, startTime: string, endTime: string, reason: string }) => {
     if (data.companyId === 'TEST') return true;
 
-    const formVars = {
-      WorksheetId: "23",
+    const companyConfig = APP_CONFIG.companies?.find((c: any) => 
+      c.groupUBINo === data.companyId && (c.companyID === data.internalId || c.companyID === '*')
+    )?.checkIn;
+    
+    const defaultConfig = APP_CONFIG.default?.checkIn;
+    let worksheetId = companyConfig?.fixedWorksheetId;
+    const searchKeyword = companyConfig?.searchKeyword || defaultConfig?.searchKeyword || '刷卡';
+
+    if (!worksheetId) {
+      try {
+        const sheets = await HR104Service.getRequestWorksheets(data);
+        const targetSheet = sheets.find((s: any) => s.WorksheetName && s.WorksheetName.includes(searchKeyword));
+        if (targetSheet) {
+          worksheetId = targetSheet.WORKSHEET_ID;
+          console.log('[API] Resolved worksheetId: %s for %s', worksheetId, targetSheet.WorksheetName);
+        }
+      } catch (e) {
+        console.warn('[API] Failed to resolve worksheetId dynamically');
+      }
+    }
+    
+    worksheetId = worksheetId || "23";
+
+    let formVars: any = {
+      WorksheetId: worksheetId,
       STARTDATE: data.date,
       STARTTIME: data.startTime,
       LEAVE_ID_1: "<=VALUE][NAME=>請選擇",
@@ -106,6 +168,10 @@ const HR104Service = {
       LEAVE_REASON: data.reason || "補打卡",
       FILE_UPLOAD: ""
     };
+
+    if (companyConfig?.customPayload) {
+      // JSON config doesn't support functions, so this is just placeholder for now
+    }
 
     const params = new URLSearchParams();
     params.append('key', data.token);
@@ -124,6 +190,135 @@ const HR104Service = {
     if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
     else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Apply failed');
   },
+
+  insertCard: async (data: { token: string, companyId: string, internalId: string, empId: string, lat: number, lng: number, address?: string, memo?: string }) => {
+    if (data.companyId === 'TEST') return true;
+
+    const params = new URLSearchParams();
+    params.append('key', data.token);
+    params.append('groupUBINo', data.companyId);
+    params.append('companyID', data.internalId);
+    params.append('account', data.empId);
+    params.append('language', 'zh-tw');
+    params.append('latitude', data.lat.toString());
+    params.append('longitude', data.lng.toString());
+    params.append('address', data.address || '');
+    params.append('memo', data.memo || '');
+    params.append('mobile_info', '');
+    params.append('locationID', '0');
+    params.append('Offset', '0');
+    params.append('temperature', '');
+
+    const response = await axios.post(`${BASE_URL}/InsertCardData`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
+    });
+
+    const jsonObj = parser.parse(response.data);
+    if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
+    else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Check-in failed');
+  },
+
+  // --- Salary APIs ---
+  verifySalaryCode: async (data: { token: string, companyId: string, internalId: string, empId: string, code: string }) => {
+    const params = new URLSearchParams();
+    params.append('key', data.token);
+    params.append('groupUBINo', data.companyId);
+    params.append('companyID', data.internalId);
+    params.append('account', data.empId);
+    params.append('language', 'zh-tw');
+    params.append('code', data.code);
+
+    const response = await axios.post(`${BASE_URL}/Verification`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
+    });
+
+    const jsonObj = parser.parse(response.data);
+    if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
+    else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Verification failed');
+  },
+
+  getSalaryYears: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
+    const params = new URLSearchParams();
+    params.append('key', data.token);
+    params.append('groupUBINo', data.companyId);
+    params.append('companyID', data.internalId);
+    params.append('account', data.empId);
+    params.append('language', 'zh-tw');
+
+    const response = await axios.post(`${BASE_URL}/GetEmpSalaryYear`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
+    });
+
+    const jsonObj = parser.parse(response.data);
+    const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
+    if (!rawJson) return [];
+    try { return JSON.parse(rawJson).Tables[0].Rows || []; } catch (e) { return []; }
+  },
+
+  getSalaryList: async (data: { token: string, companyId: string, internalId: string, empId: string, year: string }) => {
+    const params = new URLSearchParams();
+    params.append('key', data.token);
+    params.append('groupUBINo', data.companyId);
+    params.append('companyID', data.internalId);
+    params.append('account', data.empId);
+    params.append('language', 'zh-tw');
+    params.append('year', data.year);
+
+    const response = await axios.post(`${BASE_URL}/GetEmpSalaryName`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
+    });
+
+    const jsonObj = parser.parse(response.data);
+    const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
+    if (!rawJson) return [];
+    try { return JSON.parse(rawJson).Tables[0].Rows || []; } catch (e) { return []; }
+  },
+
+  getSalaryDetail: async (data: { token: string, companyId: string, internalId: string, empId: string, id: string }) => {
+    const params = new URLSearchParams();
+    params.append('key', data.token);
+    params.append('groupUBINo', data.companyId);
+    params.append('companyID', data.internalId);
+    params.append('account', data.empId);
+    params.append('language', 'zh-tw');
+    params.append('SALARY_CLOSE_ID', data.id);
+
+    const response = await axios.post(`${BASE_URL}/GetEmpSalaryData`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
+    });
+
+    const jsonObj = parser.parse(response.data);
+    const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
+    if (!rawJson) throw new Error('No data');
+    try { 
+        const rows = JSON.parse(rawJson).Tables[0].Rows;
+        return rows.length > 0 ? rows[0].ShowData : '';
+    } catch (e) { return ''; }
+  },
+
+  // --- Leave API ---
+  getLeaveStatus: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
+    const params = new URLSearchParams();
+    params.append('key', data.token);
+    params.append('groupUBINo', data.companyId);
+    params.append('companyID', data.internalId);
+    params.append('account', data.empId);
+    params.append('language', 'zh-tw');
+
+    const response = await axios.post(`${BASE_URL}/GetEmpLeaveOp`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
+    });
+
+    const jsonObj = parser.parse(response.data);
+    const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
+    if (!rawJson) throw new Error('No leave data found');
+    try {
+      const rows = JSON.parse(rawJson).Tables[0].Rows;
+      return rows.length > 0 ? rows[0].ShowData : '';
+    } catch (e) { throw new Error('Parse leave data failed'); }
+  },
+
+  // --- Approval APIs ---
 
   getApprovalCategories: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
     const params = new URLSearchParams();
@@ -255,8 +450,28 @@ app.get('/api/check-binding', async (req, res) => {
   if (!lineUserId || typeof lineUserId !== 'string') return res.status(400).json({ success: false, message: 'Missing lineUserId' });
   try {
     console.log('[API] GET /check-binding', { lineUserId });
-    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
-    res.json({ success: true, data: { isBound: !!user, empId: user?.empId } });
+    const user = await prisma.userBinding.findUnique({
+      where: { lineUserId },
+      include: { logs: true }
+    });
+
+    if (user) {
+      const checkInCount = user.logs.filter(l => l.action === 'CHECK_IN').reduce((acc, cur) => acc + cur.count, 0);
+      const auditCount = user.logs.filter(l => l.action === 'AUDIT').reduce((acc, cur) => acc + cur.count, 0);
+      
+      res.json({
+        success: true,
+        data: {
+          isBound: true,
+          empId: user.empId,
+          companyId: user.companyId,
+          internalId: user.internalCompanyId,
+          stats: { checkIn: checkInCount, audit: auditCount }
+        }
+      });
+    } else {
+      res.json({ success: true, data: { isBound: false } });
+    }
   } catch (error: any) {
     console.error('[API Error] check-binding:', error.message);
     res.status(500).json({ success: false, message: 'Database error: ' + error.message });
@@ -295,7 +510,6 @@ app.post('/api/bind', authLimiter, async (req, res) => {
   }
 });
 
-// Stream Check-in
 app.post('/api/check-in', async (req, res) => {
   const { lineUserId, dates, timeStart, timeEnd, reason } = req.body as CheckInPayload;
   res.setHeader('Content-Type', 'application/x-ndjson');
@@ -339,7 +553,6 @@ app.post('/api/check-in', async (req, res) => {
       if (index !== dates.length - 1) await sleep(500);
     }
 
-    // Log Usage
     if (successCount > 0) {
       logUsage(user.id, 'CHECK_IN', successCount, `Dates: ${dates.join(', ')}`);
     }
@@ -352,7 +565,126 @@ app.post('/api/check-in', async (req, res) => {
   }
 });
 
-// Audit List
+// New: Check-in Now API
+app.post('/api/check-in/now', async (req, res) => {
+  const { lineUserId, lat, lng, address } = req.body;
+  if (!lineUserId || !lat || !lng) return res.status(400).json({ success: false, message: 'Missing location' });
+
+  try {
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+    if (!user || !user.companyId || !user.empId || !user.internalCompanyId) {
+      return res.status(401).json({ success: false, message: 'User not bound' });
+    }
+
+    const token = decrypt(user.encryptedToken, user.iv);
+    await HR104Service.insertCard({
+      token,
+      companyId: user.companyId!,
+      internalId: user.internalCompanyId!,
+      empId: user.empId!,
+      lat,
+      lng,
+      address: '',
+      memo: ''
+    });
+
+    logUsage(user.id, 'CHECK_IN', 1, `GPS: ${lat},${lng}`);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/salary/verify', async (req, res) => {
+  const { lineUserId, code } = req.body;
+  if (!lineUserId || !code) return res.status(400).json({ success: false, message: 'Missing fields' });
+
+  try {
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+    if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
+
+    const token = decrypt(user.encryptedToken, user.iv);
+    await HR104Service.verifySalaryCode({
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, code
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(403).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/salary/years', async (req, res) => {
+  const { lineUserId } = req.query;
+  if (typeof lineUserId !== 'string') return res.status(400).json({ success: false, message: 'Missing lineUserId' });
+
+  try {
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+    if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
+
+    const token = decrypt(user.encryptedToken, user.iv);
+    const years = await HR104Service.getSalaryYears({
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!
+    });
+    res.json({ success: true, data: years });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/salary/list', async (req, res) => {
+  const { lineUserId, year } = req.query;
+  if (typeof lineUserId !== 'string' || typeof year !== 'string') return res.status(400).json({ success: false, message: 'Missing fields' });
+
+  try {
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+    if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
+
+    const token = decrypt(user.encryptedToken, user.iv);
+    const list = await HR104Service.getSalaryList({
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, year
+    });
+    res.json({ success: true, data: list });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/salary/detail', async (req, res) => {
+  const { lineUserId, id } = req.query;
+  if (typeof lineUserId !== 'string' || typeof id !== 'string') return res.status(400).json({ success: false, message: 'Missing fields' });
+
+  try {
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+    if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
+
+    const token = decrypt(user.encryptedToken, user.iv);
+    const html = await HR104Service.getSalaryDetail({
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, id
+    });
+    res.json({ success: true, data: html });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/leave/status', async (req, res) => {
+  const { lineUserId } = req.query;
+  if (typeof lineUserId !== 'string') return res.status(400).json({ success: false, message: 'Missing lineUserId' });
+
+  try {
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+    if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
+
+    const token = decrypt(user.encryptedToken, user.iv);
+    const html = await HR104Service.getLeaveStatus({
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!
+    });
+    res.json({ success: true, data: html });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.get('/api/audit/list', async (req, res) => {
   const { lineUserId } = req.query;
   if (!lineUserId || typeof lineUserId !== 'string') return res.status(400).json({ success: false, message: 'Missing lineUserId' });
@@ -379,7 +711,6 @@ app.get('/api/audit/list', async (req, res) => {
   }
 });
 
-// Stream Audit Approve
 app.post('/api/audit/approve', async (req, res) => {
   const { lineUserId, approvalKeys } = req.body;
   if (!lineUserId || !Array.isArray(approvalKeys)) return res.status(400).json({ success: false, message: 'Invalid payload' });
@@ -413,7 +744,6 @@ app.post('/api/audit/approve', async (req, res) => {
       if (index !== approvalKeys.length - 1) await sleep(500);
     }
 
-    // Log Usage
     if (successCount > 0) {
       logUsage(user.id, 'AUDIT', successCount, `Keys: ${approvalKeys.length}`);
     }
@@ -426,26 +756,41 @@ app.post('/api/audit/approve', async (req, res) => {
   }
 });
 
-// Admin Users Stats
-app.get('/api/admin/users', async (req, res) => {
+app.get('/api/usages/stats', async (req, res) => {
   try {
-    const users = await prisma.userBinding.findMany({
-      include: { logs: true },
-      orderBy: { updatedAt: 'desc' }
+    const logs = await prisma.usageLog.findMany({
+      include: { user: true }
     });
 
-    const stats = users.map(u => {
-      const checkInTotal = u.logs.filter(l => l.action === 'CHECK_IN').reduce((acc, cur) => acc + cur.count, 0);
-      const auditTotal = u.logs.filter(l => l.action === 'AUDIT').reduce((acc, cur) => acc + cur.count, 0);
-      return {
-        empId: u.empId,
-        companyId: u.companyId,
-        lastActive: u.updatedAt,
-        checkInTotal,
-        auditTotal
-      };
-    });
-    res.json({ success: true, data: stats });
+    const companyStats: Record<string, any> = {};
+
+    for (const log of logs) {
+      const u = log.user;
+      if (!u.companyId) continue;
+      
+      const key = `${u.companyId}_${u.internalCompanyId || '?'}`;
+      if (!companyStats[key]) {
+        companyStats[key] = {
+          companyId: u.companyId,
+          internalId: u.internalCompanyId || '?',
+          checkInTotal: 0,
+          auditTotal: 0,
+          users: new Set()
+        };
+      }
+
+      companyStats[key].users.add(u.empId);
+      if (log.action === 'CHECK_IN') companyStats[key].checkInTotal += log.count;
+      if (log.action === 'AUDIT') companyStats[key].auditTotal += log.count;
+    }
+
+    const data = Object.values(companyStats).map(s => ({
+      ...s,
+      userCount: s.users.size,
+      users: undefined
+    }));
+
+    res.json({ success: true, data });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
