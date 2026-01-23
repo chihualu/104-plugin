@@ -4,6 +4,7 @@ import bodyParser from 'body-parser';
 import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
+import * as cheerio from 'cheerio';
 import { rateLimit } from 'express-rate-limit';
 import { XMLParser } from 'fast-xml-parser';
 import { PrismaClient } from '@prisma/client';
@@ -30,6 +31,11 @@ try {
 } catch (e) {
   console.error('[Config] Failed to load config:', e);
 }
+
+// Helper: Unescape HTML
+const unescapeHTML = (str: string) => {
+    return str.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+};
 
 // Enable proxy trust for rate limiter (Cloudflare/Nginx)
 app.set('trust proxy', 1);
@@ -71,9 +77,22 @@ const logUsage = async (userId: number, action: 'CHECK_IN' | 'AUDIT', count: num
   }
 };
 
+const getAxiosConfig = (cookies?: string | null) => {
+  const config: any = {
+    headers: { 
+      'Content-Type': 'application/x-www-form-urlencoded', 
+      'X-Requested-With': 'XMLHttpRequest' 
+    }
+  };
+  if (cookies) {
+    config.headers['Cookie'] = cookies;
+  }
+  return config;
+};
+
 // --- Real 104 Service ---
 const HR104Service = {
-  getRequestWorksheets: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
+  getRequestWorksheets: async (data: { token: string, companyId: string, internalId: string, empId: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -81,9 +100,7 @@ const HR104Service = {
     params.append('account', data.empId);
     params.append('language', 'zh-tw');
 
-    const response = await axios.post(`${BASE_URL}/GetRequestListByWorksheet`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetRequestListByWorksheet`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
@@ -97,9 +114,7 @@ const HR104Service = {
     const params = new URLSearchParams();
     params.append('groupUBINo', groupUBINo);
 
-    const response = await axios.post(`${BASE_URL}/GetComapnyList`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetComapnyList`, params.toString(), getAxiosConfig());
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.string;
@@ -117,9 +132,7 @@ const HR104Service = {
     params.append('account', empId);
     params.append('credential', password);
 
-    const response = await axios.post(`${BASE_URL}/Login`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/Login`, params.toString(), getAxiosConfig());
 
     const jsonObj = parser.parse(response.data);
     const result = jsonObj.FunctionExecResult;
@@ -131,17 +144,24 @@ const HR104Service = {
     }
   },
 
-  applyCheckInForm: async (data: { token: string, companyId: string, internalId: string, empId: string, date: string, startTime: string, endTime: string, reason: string }) => {
+  applyCheckInForm: async (data: { token: string, companyId: string, internalId: string, empId: string, date: string, startTime: string, endTime: string, reason: string, cookies?: string | null }) => {
     if (data.companyId === 'TEST') return true;
 
-    const companyConfig = APP_CONFIG.companies?.find((c: any) => 
-      c.groupUBINo === data.companyId && (c.companyID === data.internalId || c.companyID === '*')
-    )?.checkIn;
+    // 1. Load Config
+    let companyConfig;
+    if (Array.isArray(APP_CONFIG.companies)) {
+      companyConfig = APP_CONFIG.companies.find((c: any) => 
+        c.groupUBINo === data.companyId && 
+        (c.companyID === data.internalId || c.companyID === '*')
+      )?.checkIn;
+    }
     
     const defaultConfig = APP_CONFIG.default?.checkIn;
+    
     let worksheetId = companyConfig?.fixedWorksheetId;
     const searchKeyword = companyConfig?.searchKeyword || defaultConfig?.searchKeyword || '刷卡';
 
+    // 2. Dynamic Search
     if (!worksheetId) {
       try {
         const sheets = await HR104Service.getRequestWorksheets(data);
@@ -157,7 +177,8 @@ const HR104Service = {
     
     worksheetId = worksheetId || "23";
 
-    let formVars: any = {
+    // 3. Build Payload
+    const formVars = {
       WorksheetId: worksheetId,
       STARTDATE: data.date,
       STARTTIME: data.startTime,
@@ -169,10 +190,6 @@ const HR104Service = {
       FILE_UPLOAD: ""
     };
 
-    if (companyConfig?.customPayload) {
-      // JSON config doesn't support functions, so this is just placeholder for now
-    }
-
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -182,16 +199,14 @@ const HR104Service = {
     params.append('formVars', JSON.stringify(formVars));
     params.append('fileuploadid', '');
 
-    const response = await axios.post(`${BASE_URL}/RequestFormApply`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/RequestFormApply`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
     else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Apply failed');
   },
 
-  insertCard: async (data: { token: string, companyId: string, internalId: string, empId: string, lat: number, lng: number, address?: string, memo?: string }) => {
+  insertCard: async (data: { token: string, companyId: string, internalId: string, empId: string, lat: number, lng: number, address?: string, memo?: string, cookies?: string | null }) => {
     if (data.companyId === 'TEST') return true;
 
     const params = new URLSearchParams();
@@ -209,9 +224,7 @@ const HR104Service = {
     params.append('Offset', '0');
     params.append('temperature', '');
 
-    const response = await axios.post(`${BASE_URL}/InsertCardData`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/InsertCardData`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
@@ -219,7 +232,7 @@ const HR104Service = {
   },
 
   // --- Salary APIs ---
-  verifySalaryCode: async (data: { token: string, companyId: string, internalId: string, empId: string, code: string }) => {
+  verifySalaryCode: async (data: { token: string, companyId: string, internalId: string, empId: string, code: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -228,16 +241,18 @@ const HR104Service = {
     params.append('language', 'zh-tw');
     params.append('code', data.code);
 
-    const response = await axios.post(`${BASE_URL}/Verification`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/Verification`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
-    if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
+    if (jsonObj.FunctionExecResult?.IsSuccess === true) {
+      // Return captured cookies
+      const setCookie = response.headers['set-cookie'];
+      return setCookie ? setCookie.join('; ') : null;
+    }
     else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Verification failed');
   },
 
-  getSalaryYears: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
+  getSalaryYears: async (data: { token: string, companyId: string, internalId: string, empId: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -245,9 +260,7 @@ const HR104Service = {
     params.append('account', data.empId);
     params.append('language', 'zh-tw');
 
-    const response = await axios.post(`${BASE_URL}/GetEmpSalaryYear`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetEmpSalaryYear`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
@@ -255,7 +268,7 @@ const HR104Service = {
     try { return JSON.parse(rawJson).Tables[0].Rows || []; } catch (e) { return []; }
   },
 
-  getSalaryList: async (data: { token: string, companyId: string, internalId: string, empId: string, year: string }) => {
+  getSalaryList: async (data: { token: string, companyId: string, internalId: string, empId: string, year: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -264,9 +277,7 @@ const HR104Service = {
     params.append('language', 'zh-tw');
     params.append('year', data.year);
 
-    const response = await axios.post(`${BASE_URL}/GetEmpSalaryName`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetEmpSalaryName`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
@@ -274,7 +285,7 @@ const HR104Service = {
     try { return JSON.parse(rawJson).Tables[0].Rows || []; } catch (e) { return []; }
   },
 
-  getSalaryDetail: async (data: { token: string, companyId: string, internalId: string, empId: string, id: string }) => {
+  getSalaryDetail: async (data: { token: string, companyId: string, internalId: string, empId: string, id: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -283,9 +294,7 @@ const HR104Service = {
     params.append('language', 'zh-tw');
     params.append('SALARY_CLOSE_ID', data.id);
 
-    const response = await axios.post(`${BASE_URL}/GetEmpSalaryData`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetEmpSalaryData`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
@@ -296,8 +305,61 @@ const HR104Service = {
     } catch (e) { return ''; }
   },
 
+  getSalarySummary: async (data: { token: string, companyId: string, internalId: string, empId: string, year: string, cookies?: string | null }) => {
+    // 1. Get List
+    const list = await HR104Service.getSalaryList(data);
+    if (list.length === 0) return { tax: 0, income: 0, deduction: 0, real: 0 };
+
+    const summary = { tax: 0, income: 0, deduction: 0, real: 0 };
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    
+    // Batch processing
+    for (let i = 0; i < list.length; i += 5) {
+        const chunk = list.slice(i, i + 5);
+        const details = await Promise.all(chunk.map((item: any) => 
+            HR104Service.getSalaryDetail({ ...data, id: item.SALARY_CLOSE_ID })
+        ));
+
+        // 3. Parse HTML with Cheerio
+        details.forEach((rawHtml: string, idx: number) => {
+            if (!rawHtml) return;
+            const html = unescapeHTML(rawHtml);
+            const $ = cheerio.load(html);
+            
+            const parseValue = (keyword: string) => {
+                try {
+                    // Try exact match in any td/span
+                    // Then find the corresponding value cell (td ending with _value) in the same row
+                    const el = $(`span:contains('${keyword}'), td:contains('${keyword}')`).last();
+                    
+                    if (el.length > 0) {
+                        const tr = el.closest('tr');
+                        const valueTd = tr.find('td[id$="_value"]');
+                        if (valueTd.length > 0) {
+                            const text = valueTd.text().trim().replace(/,/g, '');
+                            return parseInt(text, 10) || 0;
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`[Cheerio] Parse error for ${keyword}:`, e);
+                }
+                return 0;
+            };
+
+            summary.tax += parseValue('應稅總額');
+            summary.income += parseValue('應發總額');
+            summary.deduction += parseValue('應扣總額');
+            summary.real += parseValue('實發金額');
+        });
+        
+        await sleep(200);
+    }
+
+    return summary;
+  },
+
   // --- Leave API ---
-  getLeaveStatus: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
+  getLeaveStatus: async (data: { token: string, companyId: string, internalId: string, empId: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -305,9 +367,7 @@ const HR104Service = {
     params.append('account', data.empId);
     params.append('language', 'zh-tw');
 
-    const response = await axios.post(`${BASE_URL}/GetEmpLeaveOp`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetEmpLeaveOp`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
@@ -320,7 +380,7 @@ const HR104Service = {
 
   // --- Approval APIs ---
 
-  getApprovalCategories: async (data: { token: string, companyId: string, internalId: string, empId: string }) => {
+  getApprovalCategories: async (data: { token: string, companyId: string, internalId: string, empId: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -335,9 +395,7 @@ const HR104Service = {
     params.append('empID', '');
     params.append('pointStatus', '0');
 
-    const response = await axios.post(`${BASE_URL}/GetApprovalCountGroupByWorksheet`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetApprovalCountGroupByWorksheet`, params.toString(), getAxiosConfig(data.cookies));
     
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
@@ -345,7 +403,7 @@ const HR104Service = {
     try { return JSON.parse(rawJson).Tables[0].Rows || []; } catch (e) { return []; }
   },
 
-  getApprovalList: async (data: { token: string, companyId: string, internalId: string, empId: string, worksheetId: string }) => {
+  getApprovalList: async (data: { token: string, companyId: string, internalId: string, empId: string, worksheetId: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -363,9 +421,7 @@ const HR104Service = {
     params.append('pageSize', '100');
     params.append('sort', 'WORKSHEET_DATA_ID DESC');
 
-    const response = await axios.post(`${BASE_URL}/GetApprovalListByWorksheet`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetApprovalListByWorksheet`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
@@ -376,7 +432,7 @@ const HR104Service = {
     } catch (e) { return []; }
   },
 
-  getApprovalKey: async (data: { token: string, companyId: string, internalId: string, empId: string, wsdID: string }) => {
+  getApprovalKey: async (data: { token: string, companyId: string, internalId: string, empId: string, wsdID: string, cookies?: string | null }) => {
     const params = new URLSearchParams();
     params.append('key', data.token);
     params.append('groupUBINo', data.companyId);
@@ -385,9 +441,7 @@ const HR104Service = {
     params.append('language', 'zh-tw');
     params.append('wsdID', data.wsdID);
 
-    const response = await axios.post(`${BASE_URL}/GetWSDShowDataByID`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/GetWSDShowDataByID`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
@@ -399,14 +453,11 @@ const HR104Service = {
     } catch (e) { throw new Error('Parse detail failed'); }
   },
 
-  approveWorkflow: async (data: { token: string, companyId: string, internalId: string, empId: string, approvalKey: string }) => {
+  approveWorkflow: async (data: { token: string, companyId: string, internalId: string, empId: string, approvalKey: string, cookies?: string | null }) => {
     let realKey = '';
     try {
         realKey = await HR104Service.getApprovalKey({
-            token: data.token,
-            companyId: data.companyId,
-            internalId: data.internalId,
-            empId: data.empId,
+            ...data,
             wsdID: data.approvalKey 
         });
     } catch (e: any) {
@@ -422,9 +473,7 @@ const HR104Service = {
     params.append('approvalKey', realKey); 
     params.append('comment', '同意');
 
-    const response = await axios.post(`${BASE_URL}/Approval`, params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }
-    });
+    const response = await axios.post(`${BASE_URL}/Approval`, params.toString(), getAxiosConfig(data.cookies));
 
     const jsonObj = parser.parse(response.data);
     if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
@@ -541,7 +590,8 @@ app.post('/api/check-in', async (req, res) => {
           date: date,
           startTime: fmtStart,
           endTime: fmtEnd,
-          reason: reason
+          reason: reason,
+          cookies: user.cookies
         });
         successCount++;
         res.write(JSON.stringify({ type: 'progress', index: index + 1, total: dates.length, key: date, status: 'success' }) + '\n');
@@ -565,7 +615,6 @@ app.post('/api/check-in', async (req, res) => {
   }
 });
 
-// New: Check-in Now API
 app.post('/api/check-in/now', async (req, res) => {
   const { lineUserId, lat, lng, address } = req.body;
   if (!lineUserId || !lat || !lng) return res.status(400).json({ success: false, message: 'Missing location' });
@@ -585,7 +634,8 @@ app.post('/api/check-in/now', async (req, res) => {
       lat,
       lng,
       address: '',
-      memo: ''
+      memo: '',
+      cookies: user.cookies
     });
 
     logUsage(user.id, 'CHECK_IN', 1, `GPS: ${lat},${lng}`);
@@ -604,9 +654,17 @@ app.post('/api/salary/verify', async (req, res) => {
     if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
 
     const token = decrypt(user.encryptedToken, user.iv);
-    await HR104Service.verifySalaryCode({
-      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, code
+    const newCookies = await HR104Service.verifySalaryCode({
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, code, cookies: user.cookies
     });
+    
+    if (newCookies) {
+      await prisma.userBinding.update({
+        where: { id: user.id },
+        data: { cookies: newCookies }
+      });
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(403).json({ success: false, message: error.message });
@@ -623,7 +681,7 @@ app.get('/api/salary/years', async (req, res) => {
 
     const token = decrypt(user.encryptedToken, user.iv);
     const years = await HR104Service.getSalaryYears({
-      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, cookies: user.cookies
     });
     res.json({ success: true, data: years });
   } catch (error: any) {
@@ -641,7 +699,7 @@ app.get('/api/salary/list', async (req, res) => {
 
     const token = decrypt(user.encryptedToken, user.iv);
     const list = await HR104Service.getSalaryList({
-      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, year
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, year, cookies: user.cookies
     });
     res.json({ success: true, data: list });
   } catch (error: any) {
@@ -659,9 +717,29 @@ app.get('/api/salary/detail', async (req, res) => {
 
     const token = decrypt(user.encryptedToken, user.iv);
     const html = await HR104Service.getSalaryDetail({
-      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, id
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, id, cookies: user.cookies
     });
     res.json({ success: true, data: html });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/salary/summary', async (req, res) => {
+  const { lineUserId, year } = req.query;
+  if (typeof lineUserId !== 'string' || typeof year !== 'string') return res.status(400).json({ success: false, message: 'Missing fields' });
+
+  try {
+    const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+    if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
+
+    const token = decrypt(user.encryptedToken, user.iv);
+    
+    // Fetch summary using HR104Service.getSalarySummary
+    const summary = await HR104Service.getSalarySummary({
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, year, cookies: user.cookies
+    });
+    res.json({ success: true, data: summary });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -677,7 +755,7 @@ app.get('/api/leave/status', async (req, res) => {
 
     const token = decrypt(user.encryptedToken, user.iv);
     const html = await HR104Service.getLeaveStatus({
-      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!
+      token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, cookies: user.cookies
     });
     res.json({ success: true, data: html });
   } catch (error: any) {
@@ -694,7 +772,7 @@ app.get('/api/audit/list', async (req, res) => {
     if (!user || !user.internalCompanyId) return res.status(401).json({ success: false, message: 'User not bound' });
 
     const token = decrypt(user.encryptedToken, user.iv);
-    const baseData = { token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId! };
+    const baseData = { token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, cookies: user.cookies };
 
     const categories = await HR104Service.getApprovalCategories(baseData);
     let allItems: any[] = [];
@@ -727,7 +805,7 @@ app.post('/api/audit/approve', async (req, res) => {
     }
 
     const token = decrypt(user.encryptedToken, user.iv);
-    const baseData = { token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId! };
+    const baseData = { token, companyId: user.companyId!, internalId: user.internalCompanyId!, empId: user.empId!, cookies: user.cookies };
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
     let successCount = 0;
