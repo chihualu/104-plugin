@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import { useEffect, useState } from 'react';
 import { NavBar, Form, Input, Button, Toast, List, Modal, Tabs, AutoCenter } from 'antd-mobile';
 import { LoopOutline } from 'antd-mobile-icons';
@@ -94,7 +95,7 @@ export default function SalaryPage({ lineUserId, onBack }: Props) {
           content: (
             <div 
               style={{ maxHeight: '60vh', overflowY: 'auto' }}
-              dangerouslySetInnerHTML={{ __html: res.data.data }} 
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(res.data.data) }} 
             />
           ),
           closeOnMaskClick: true,

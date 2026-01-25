@@ -13,10 +13,11 @@ try {
   if (keyBuffer.length !== 32) {
       throw new Error('Key length is not 32 bytes');
   }
-} catch (e) {
-  console.warn('Invalid ENCRYPTION_KEY format. Using fallback (INSECURE for production).');
-  // Fallback for development only
-  keyBuffer = crypto.scryptSync('default_password', 'salt', 32);
+} catch (e: any) {
+  console.error('CRITICAL ERROR: Invalid ENCRYPTION_KEY. The application cannot start safely.');
+  console.error('Please set a valid 32-byte hex string for ENCRYPTION_KEY in .env');
+  console.error('Error details:', e.message);
+  process.exit(1); 
 }
 
 export function encrypt(text: string): { encryptedData: string; iv: string } {
