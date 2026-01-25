@@ -3,6 +3,8 @@ import { Button, Card, NavBar, List, AutoCenter, Tag, Collapse } from 'antd-mobi
 import { LoopOutline, CheckCircleOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 
+import DOMPurify from 'dompurify';
+
 interface Props {
   empId: string; 
   lineUserId: string;
@@ -74,7 +76,7 @@ export default function SettingsPage({ lineUserId, onBack, onLogout }: Props) {
             <Card title='假勤餘額'>
               <div 
                 style={{ overflowX: 'auto', fontSize: 14 }}
-                dangerouslySetInnerHTML={{ __html: leaveHtml }} 
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(leaveHtml) }} 
               />
             </Card>
           )}

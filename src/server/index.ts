@@ -8,6 +8,7 @@ import * as cheerio from 'cheerio';
 import { rateLimit } from 'express-rate-limit';
 import { XMLParser } from 'fast-xml-parser';
 import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
 import { encrypt, decrypt } from './encryption';
 import { BindPayload, CheckInPayload } from '../shared/types';
 import { COMPANY_CONFIGS, DEFAULT_CONFIG } from './company-config';
@@ -16,6 +17,46 @@ const app = express();
 const prisma = new PrismaClient();
 const parser = new XMLParser();
 const PORT = process.env.PORT || 3001;
+
+// --- Zod Schemas ---
+const LineUserIdSchema = z.string().min(1);
+const GroupUBINoSchema = z.string().min(1);
+const CompanyIDSchema = z.string().min(1);
+const EmpIdSchema = z.string().min(1);
+const PasswordSchema = z.string().min(1);
+
+const BindRequestSchema = z.object({
+  lineUserId: LineUserIdSchema,
+  groupUBINo: GroupUBINoSchema,
+  companyID: CompanyIDSchema,
+  empId: EmpIdSchema,
+  password: PasswordSchema
+});
+
+const CheckInRequestSchema = z.object({
+  lineUserId: LineUserIdSchema,
+  dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format YYYY-MM-DD")),
+  timeStart: z.string().regex(/^\d{2}:\d{2}$/, "Invalid time format HH:mm").optional(),
+  timeEnd: z.string().regex(/^\d{2}:\d{2}$/, "Invalid time format HH:mm").optional(),
+  reason: z.string().optional()
+});
+
+const CheckInNowRequestSchema = z.object({
+  lineUserId: LineUserIdSchema,
+  lat: z.number(),
+  lng: z.number(),
+  address: z.string().optional()
+});
+
+const SalaryVerifySchema = z.object({
+  lineUserId: LineUserIdSchema,
+  code: z.string().min(1)
+});
+
+const ApproveRequestSchema = z.object({
+  lineUserId: LineUserIdSchema,
+  approvalKeys: z.array(z.string().min(1))
+});
 
 // Load Config
 let APP_CONFIG: any = { default: { checkIn: { searchKeyword: '刷卡' } } };
@@ -495,10 +536,14 @@ app.get('/api/companies', async (req, res) => {
 });
 
 app.get('/api/check-binding', async (req, res) => {
-  const { lineUserId } = req.query;
-  if (!lineUserId || typeof lineUserId !== 'string') return res.status(400).json({ success: false, message: 'Missing lineUserId' });
+  const parseResult = LineUserIdSchema.safeParse(req.query.lineUserId);
+  if (!parseResult.success) return res.status(400).json({ success: false, message: 'Invalid or missing lineUserId' });
+  
+  const lineUserId = parseResult.data;
+
   try {
-    console.log('[API] GET /check-binding', { lineUserId });
+    // Log masked user ID
+    console.log('[API] GET /check-binding', { lineUserId: lineUserId.substring(0, 4) + '***' });
     const user = await prisma.userBinding.findUnique({
       where: { lineUserId },
       include: { logs: true }
@@ -528,8 +573,10 @@ app.get('/api/check-binding', async (req, res) => {
 });
 
 app.post('/api/bind', authLimiter, async (req, res) => {
-  const { lineUserId, groupUBINo, companyID, empId, password } = req.body;
-  if (!lineUserId || !groupUBINo || !companyID || !empId || !password) return res.status(400).json({ success: false, message: 'Missing fields' });
+  const parseResult = BindRequestSchema.safeParse(req.body);
+  if (!parseResult.success) return res.status(400).json({ success: false, message: 'Invalid payload', errors: parseResult.error.errors });
+  
+  const { lineUserId, groupUBINo, companyID, empId, password } = parseResult.data;
 
   try {
     const token = await HR104Service.login(groupUBINo, companyID, empId, password);
@@ -560,7 +607,12 @@ app.post('/api/bind', authLimiter, async (req, res) => {
 });
 
 app.post('/api/check-in', async (req, res) => {
-  const { lineUserId, dates, timeStart, timeEnd, reason } = req.body as CheckInPayload;
+  const parseResult = CheckInRequestSchema.safeParse(req.body);
+  if (!parseResult.success) {
+      return res.status(400).json({ success: false, message: 'Invalid payload', errors: parseResult.error.errors });
+  }
+
+  const { lineUserId, dates, timeStart, timeEnd, reason } = parseResult.data;
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -616,8 +668,10 @@ app.post('/api/check-in', async (req, res) => {
 });
 
 app.post('/api/check-in/now', async (req, res) => {
-  const { lineUserId, lat, lng, address } = req.body;
-  if (!lineUserId || !lat || !lng) return res.status(400).json({ success: false, message: 'Missing location' });
+  const parseResult = CheckInNowRequestSchema.safeParse(req.body);
+  if (!parseResult.success) return res.status(400).json({ success: false, message: 'Invalid payload', errors: parseResult.error.errors });
+
+  const { lineUserId, lat, lng, address } = parseResult.data;
 
   try {
     const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
@@ -646,8 +700,10 @@ app.post('/api/check-in/now', async (req, res) => {
 });
 
 app.post('/api/salary/verify', async (req, res) => {
-  const { lineUserId, code } = req.body;
-  if (!lineUserId || !code) return res.status(400).json({ success: false, message: 'Missing fields' });
+  const parseResult = SalaryVerifySchema.safeParse(req.body);
+  if (!parseResult.success) return res.status(400).json({ success: false, message: 'Invalid payload', errors: parseResult.error.errors });
+
+  const { lineUserId, code } = parseResult.data;
 
   try {
     const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
@@ -790,8 +846,10 @@ app.get('/api/audit/list', async (req, res) => {
 });
 
 app.post('/api/audit/approve', async (req, res) => {
-  const { lineUserId, approvalKeys } = req.body;
-  if (!lineUserId || !Array.isArray(approvalKeys)) return res.status(400).json({ success: false, message: 'Invalid payload' });
+  const parseResult = ApproveRequestSchema.safeParse(req.body);
+  if (!parseResult.success) return res.status(400).json({ success: false, message: 'Invalid payload', errors: parseResult.error.errors });
+
+  const { lineUserId, approvalKeys } = parseResult.data;
 
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache');

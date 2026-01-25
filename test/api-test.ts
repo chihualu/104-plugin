@@ -20,7 +20,7 @@ async function runTest() {
       lineUserId: LINE_USER_ID,
       companyId: 'TEST',
       empId: 'E001',
-      password: 'any_password'
+      password: process.env.TEST_PASSWORD || 'default_test_password_for_local_dev'
     });
     console.log('Result:', res2.data);
   } catch (e) { console.error('Error:', e.message); }
