@@ -15,6 +15,7 @@ model UserBinding {
   empId             String?  // 員編 (account)
   encryptedToken    String   // 存儲加密後的 104 Token
   iv                String   // 加密用的向量
+  cookies           String?  // 存儲 104 Session Cookies
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   
