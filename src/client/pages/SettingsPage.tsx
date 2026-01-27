@@ -59,7 +59,7 @@ export default function SettingsPage({ lineUserId, onBack, onLogout }: Props) {
           </Card>
 
           <List header='公司資訊' style={{ marginBottom: 16 }}>
-            <List.Item extra={info?.companyId}>統一編號</List.Item>
+            <List.Item extra={info?.companyName || info?.companyId}>公司名稱</List.Item>
             <List.Item extra={info?.internalId}>公司代碼</List.Item>
           </List>
 
