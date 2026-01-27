@@ -2,6 +2,7 @@
   "companies": [
     {
       "groupUBINo": "70584647",
+      "companyName": "Provision Information Co., Ltd.",
       "companyID": "*",
       "checkIn": {
         "fixedWorksheetId": "23"

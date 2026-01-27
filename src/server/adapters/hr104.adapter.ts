@@ -78,6 +78,66 @@ export class HR104Adapter {
     try { return JSON.parse(rawJson).Tables[0].Rows || []; } catch (e) { return []; }
   }
 
+  static async getSubordinateCalendarList(auth: AuthParams, year: string, month: string) {
+    const params = new URLSearchParams();
+    params.append('key', auth.token);
+    params.append('groupUBINo', auth.companyId);
+    params.append('companyID', auth.internalId);
+    params.append('account', auth.empId);
+    params.append('QUERY_YEAR', year);
+    params.append('QUERY_MONTH', month);
+
+    try {
+        const response = await axios.post(`${BASE_URL}/GetSubordinateCalendarList`, params.toString(), this.getAxiosConfig(auth.cookies));
+        const jsonObj = parser.parse(response.data);
+        if (jsonObj.FunctionExecResult?.IsSuccess === false) {
+            logger.error({ msg: 'GetSubordinateCalendarList API error', error: jsonObj.FunctionExecResult.ReturnMessage });
+            return [];
+        }
+        const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
+        if (!rawJson) return [];
+        return JSON.parse(rawJson).Tables[0].Rows || [];
+    } catch (e: any) {
+        logger.error({ msg: 'GetSubordinateCalendarList request failed', error: e.message });
+        return [];
+    }
+  }
+
+  static async getSubordinateCalendarDetail(auth: AuthParams, year: string, month: string, day: string) {
+    const params = new URLSearchParams();
+    params.append('key', auth.token);
+    params.append('groupUBINo', auth.companyId);
+    params.append('companyID', auth.internalId);
+    params.append('account', auth.empId);
+    params.append('QUERY_YEAR', year);
+    params.append('QUERY_MONTH', month);
+    params.append('QUERY_DAY', day);
+    params.append('LANG', 'zh-tw');
+
+    let retries = 2;
+    while (retries >= 0) {
+        try {
+            const response = await axios.post(`${BASE_URL}/GetSubordinateCalendarDetail`, params.toString(), this.getAxiosConfig(auth.cookies));
+            const jsonObj = parser.parse(response.data);
+            if (jsonObj.FunctionExecResult?.IsSuccess === false) {
+                throw new Error(jsonObj.FunctionExecResult.ReturnMessage || 'API Error');
+            }
+            const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
+            if (!rawJson) return [];
+            return JSON.parse(rawJson).Tables[0].Rows || [];
+        } catch (e: any) {
+            if (retries === 0) {
+                logger.error({ msg: `GetSubordinateCalendarDetail failed after retries for ${year}-${month}-${day}`, error: e.message });
+                return [];
+            }
+            logger.warn({ msg: `Retrying GetSubordinateCalendarDetail for ${year}-${month}-${day}...`, attemptsLeft: retries });
+            retries--;
+            await new Promise(r => setTimeout(r, 300));
+        }
+    }
+    return [];
+  }
+
   static async applyCheckInForm(auth: AuthParams, payload: { worksheetId: string, date: string, startTime: string, endTime: string, reason: string }) {
     if (auth.companyId === 'TEST') return true;
     

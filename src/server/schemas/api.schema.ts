@@ -8,6 +8,7 @@ export const PasswordSchema = z.string().min(1);
 
 // New Schemas for Query Parameters
 export const YearSchema = z.string().regex(/^\d{4}$/, "Invalid year format (YYYY)");
+export const MonthSchema = z.string().regex(/^\d{1,2}$/, "Invalid month format");
 export const SalaryIdSchema = z.string().min(1, "ID cannot be empty");
 
 export const BindRequestSchema = z.object({

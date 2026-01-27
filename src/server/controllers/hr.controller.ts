@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { HRService } from '../services/hr.service';
-import { CheckInRequestSchema, CheckInNowRequestSchema, SalaryVerifySchema, ApproveRequestSchema, LineUserIdSchema, YearSchema, SalaryIdSchema } from '../schemas/api.schema';
+import { CheckInRequestSchema, CheckInNowRequestSchema, SalaryVerifySchema, ApproveRequestSchema, LineUserIdSchema, YearSchema, MonthSchema, SalaryIdSchema } from '../schemas/api.schema';
 
 export class HRController {
   
@@ -81,6 +81,19 @@ export class HRController {
         const year = YearSchema.parse(req.query.year);
         if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
         const data = await HRService.getSalarySummary(lineUserId, year);
+        res.json({ success: true, data });
+    } catch (e) { next(e); }
+  }
+
+  static async getTeamAttendance(req: Request, res: Response, next: NextFunction) {
+    try {
+        const lineUserId = LineUserIdSchema.parse(req.query.lineUserId);
+        const year = YearSchema.parse(req.query.year);
+        const month = MonthSchema.parse(req.query.month);
+
+        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
+
+        const data = await HRService.getTeamAttendance(lineUserId, year, month);
         res.json({ success: true, data });
     } catch (e) { next(e); }
   }

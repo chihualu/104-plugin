@@ -1,12 +1,29 @@
-import { AutoCenter, Card, Grid, Space } from 'antd-mobile';
+import { useEffect, useState } from 'react';
+import { AutoCenter, Card, Grid, Space, Badge } from 'antd-mobile';
 import { CalendarOutline, CheckCircleOutline, FileOutline, SetOutline, TeamOutline, LocationOutline } from 'antd-mobile-icons';
+import axios from 'axios';
 
 interface Props {
   empId: string;
-  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'USAGES' | 'SALARY' | 'CHECK_IN_NOW') => void;
+  lineUserId: string;
+  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'USAGES' | 'SALARY' | 'CHECK_IN_NOW' | 'TEAM_ATTENDANCE') => void;
 }
 
-export default function DashboardPage({ empId, onNavigate }: Props) {
+export default function DashboardPage({ empId, lineUserId, onNavigate }: Props) {
+  const [auditCount, setAuditCount] = useState(0);
+
+  useEffect(() => {
+    // Check for pending audits on mount
+    if (lineUserId) {
+        axios.get('/api/audit/list?lineUserId=' + lineUserId)
+        .then(res => {
+            if (res.data.success) {
+            setAuditCount(res.data.data.length);
+            }
+        })
+        .catch(() => {});
+    }
+  }, [lineUserId]);
   return (
     <div style={{ padding: 20, background: '#f5f5f5', minHeight: '100vh' }}>
       <AutoCenter style={{ marginBottom: 20 }}>
@@ -38,7 +55,9 @@ export default function DashboardPage({ empId, onNavigate }: Props) {
 
         <Grid.Item onClick={() => onNavigate('AUDIT')}>
           <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <FileOutline fontSize={32} color='#ff4d4f' />
+              <Badge content={auditCount ? auditCount : null} style={{ '--right': '-10px', '--top': '-5px' }}>
+                <FileOutline fontSize={32} color='#ff4d4f' />
+              </Badge>
               <div style={{ marginTop: 8 }}>表單簽核</div>
           </Card>
         </Grid.Item>
@@ -47,6 +66,13 @@ export default function DashboardPage({ empId, onNavigate }: Props) {
           <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
               <FileOutline fontSize={32} color='#ff8f1f' />
               <div style={{ marginTop: 8 }}>薪資查詢</div>
+          </Card>
+        </Grid.Item>
+
+        <Grid.Item onClick={() => onNavigate('TEAM_ATTENDANCE')}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <TeamOutline fontSize={32} color='#722ed1' />
+              <div style={{ marginTop: 8 }}>部屬出勤</div>
           </Card>
         </Grid.Item>
 

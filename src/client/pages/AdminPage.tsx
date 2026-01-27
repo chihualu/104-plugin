@@ -41,8 +41,11 @@ export default function AdminPage({ onBack }: Props) {
                 </div>
               }
             >
-              <div style={{ fontWeight: 'bold', fontSize: 18 }}>{s.companyId}</div>
-              <Tag color='success' fill='outline' style={{ marginTop: 4 }}>ID: {s.internalId}</Tag>
+              <div style={{ fontWeight: 'bold', fontSize: 18 }}>{s.companyName}</div>
+              <div style={{ marginTop: 4 }}>
+                <Tag color='success' fill='outline' style={{ marginRight: 8 }}>ID: {s.internalId}</Tag>
+                <span style={{ fontSize: 14, color: '#666' }}>{s.userCount} 位使用者</span>
+              </div>
             </List.Item>
           ))}
         </List>

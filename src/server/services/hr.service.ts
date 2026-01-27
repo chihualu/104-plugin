@@ -151,6 +151,69 @@ export class HRService {
     return summary;
   }
 
+  static async getTeamAttendance(lineUserId: string, year: string, month: string) {
+    const creds = await AuthService.getUserCredentials(lineUserId);
+    
+    // 1. Get Dates (01)
+    const dateList = await HR104Adapter.getSubordinateCalendarList(creds, year, month);
+    if (!dateList || dateList.length === 0) return { leaves: [], punches: [] };
+
+    const dates = dateList.map((d: any) => d.QUERY_DATE);
+
+    // 2. Get Details for each date (Serial Processing)
+    const allDetails: any[] = [];
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+    for (const dateStr of dates) {
+        try {
+            const day = dateStr.split('-')[2];
+            const rows = await HR104Adapter.getSubordinateCalendarDetail(creds, year, month, day);
+            const enrichedRows = rows.map((r: any) => ({ ...r, DATE: dateStr }));
+            allDetails.push(...enrichedRows);
+        } catch (e) {
+            logger.warn(`Failed to fetch details for ${dateStr}, skipping.`);
+        }
+        await sleep(200); // Small delay between each request
+    }
+
+    // 3. Group by Type (LEAVE vs PUNCH)
+    const result = {
+        leaves: [] as any[],
+        punches: [] as any[]
+    };
+
+    for (const item of allDetails) {
+        const record = {
+            empId: item.EMPLOYEE_ID,
+            empName: item.EMPLOYEE_CNAME,
+            dept: item.EMPLOYEE_JOB_DEPARTMENT,
+            date: item.DATE,
+            info: item.INFO_TYPE === '1' ? item.ASK_LEAVE_INFO : item.CARD_DATA_NAME
+        };
+
+        if (item.INFO_TYPE === '1') { // Leave
+            result.leaves.push(record);
+        } else if (item.INFO_TYPE === '2') { // Punch / Card Data
+            // Include ALL card data, no filtering for "abnormal"
+            if (record.info) {
+                result.punches.push(record);
+            }
+        }
+    }
+    
+    // Sort by empId, then date desc
+    const sortFn = (a: any, b: any) => {
+        if (a.empId !== b.empId) {
+            return a.empId.localeCompare(b.empId);
+        }
+        return b.date.localeCompare(a.date);
+    };
+    result.leaves.sort(sortFn);
+    result.punches.sort(sortFn);
+
+    return result;
+  }
+
   static async getLeaveStatus(lineUserId: string) {
     const creds = await AuthService.getUserCredentials(lineUserId);
     return HR104Adapter.getLeaveStatus(creds);
@@ -208,8 +271,21 @@ export class HRService {
       
       const key = `${u.companyId}_${u.internalCompanyId || '?'}`;
       if (!companyStats[key]) {
+        // Find company name from config
+        let companyName = u.companyId; // Default to UBI No
+        if (Array.isArray(APP_CONFIG.companies)) {
+            const config = APP_CONFIG.companies.find((c: any) => 
+                c.groupUBINo === u.companyId && 
+                (c.companyID === u.internalCompanyId || c.companyID === '*')
+            );
+            if (config && config.companyName) {
+                companyName = config.companyName;
+            }
+        }
+
         companyStats[key] = {
-          companyId: u.companyId,
+          companyId: u.companyId, // Still needed for key but display name is separate
+          companyName,
           internalId: u.internalCompanyId || '?',
           checkInTotal: 0,
           auditTotal: 0,

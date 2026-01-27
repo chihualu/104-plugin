@@ -15,8 +15,9 @@ const AuditPage = lazy(() => import('./pages/AuditPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const SalaryPage = lazy(() => import('./pages/SalaryPage'));
+const TeamAttendancePage = lazy(() => import('./pages/TeamAttendancePage'));
 
-type AppState = 'INIT' | 'BINDING' | 'DASHBOARD' | 'CHECK_IN' | 'CHECK_IN_NOW' | 'AUDIT' | 'SETTINGS' | 'USAGES' | 'SALARY';
+type AppState = 'INIT' | 'BINDING' | 'DASHBOARD' | 'CHECK_IN' | 'CHECK_IN_NOW' | 'AUDIT' | 'SETTINGS' | 'USAGES' | 'SALARY' | 'TEAM_ATTENDANCE';
 
 export const App = () => {
   const [state, setState] = useState<AppState>('INIT');
@@ -91,7 +92,11 @@ export const App = () => {
       )}
 
       {state === 'DASHBOARD' && (
-        <DashboardPage empId={empId} onNavigate={(page) => setState(page)} />
+        <DashboardPage 
+          empId={empId} 
+          lineUserId={lineUserId}
+          onNavigate={(page) => setState(page)} 
+        />
       )}
 
       {state === 'CHECK_IN_NOW' && (
@@ -108,6 +113,10 @@ export const App = () => {
 
       {state === 'SALARY' && (
         <SalaryPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+      )}
+
+      {state === 'TEAM_ATTENDANCE' && (
+        <TeamAttendancePage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
       )}
 
       {state === 'SETTINGS' && (
