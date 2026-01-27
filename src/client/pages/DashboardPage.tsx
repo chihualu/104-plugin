@@ -6,7 +6,7 @@ import axios from 'axios';
 interface Props {
   empId: string;
   lineUserId: string;
-  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'USAGES' | 'SALARY' | 'CHECK_IN_NOW' | 'TEAM_ATTENDANCE') => void;
+  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'USAGES' | 'SALARY' | 'CHECK_IN_NOW' | 'TEAM_ATTENDANCE' | 'SCHEDULE') => void;
 }
 
 export default function DashboardPage({ empId, lineUserId, onNavigate }: Props) {
@@ -40,9 +40,20 @@ export default function DashboardPage({ empId, lineUserId, onNavigate }: Props) 
 
       <Grid columns={2} gap={16}>
         <Grid.Item onClick={() => onNavigate('CHECK_IN_NOW')}>
-          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <LocationOutline fontSize={32} color='#00b578' />
-              <div style={{ marginTop: 8 }}>即時打卡</div>
+          <Card style={{ height: 60, display: 'flex', alignItems: 'center' }}>
+              <Space align='center' style={{ width: '100%' }}>
+                <LocationOutline fontSize={28} color='#00b578' />
+                <div style={{ fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>即時打卡</div>
+              </Space>
+          </Card>
+        </Grid.Item>
+
+        <Grid.Item onClick={() => onNavigate('SCHEDULE')}>
+          <Card style={{ height: 60, display: 'flex', alignItems: 'center' }}>
+              <Space align='center' style={{ width: '100%' }}>
+                <CalendarOutline fontSize={28} color='#722ed1' />
+                <div style={{ fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>預約打卡</div>
+              </Space>
           </Card>
         </Grid.Item>
 
@@ -92,7 +103,7 @@ export default function DashboardPage({ empId, lineUserId, onNavigate }: Props) 
       </Grid>
 
       <div style={{ marginTop: 40, textAlign: 'center', color: '#999', fontSize: 12 }}>
-        v1.1.0 @ 104 eHR Optimization
+        v1.2.0 @ 104 eHR Optimization
       </div>
     </div>
   );

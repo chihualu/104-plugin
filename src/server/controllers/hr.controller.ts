@@ -1,6 +1,10 @@
+import { PrismaClient } from '@prisma/client';
 import { Request, Response, NextFunction } from 'express';
 import { HRService } from '../services/hr.service';
+import { CompanyService } from '../services/company.service';
 import { CheckInRequestSchema, CheckInNowRequestSchema, SalaryVerifySchema, ApproveRequestSchema, LineUserIdSchema, YearSchema, MonthSchema, SalaryIdSchema } from '../schemas/api.schema';
+
+const prisma = new PrismaClient();
 
 export class HRController {
   
@@ -142,6 +146,101 @@ export class HRController {
     try {
         const data = await HRService.getUsagesStats();
         res.json({ success: true, data });
+    } catch (e) { next(e); }
+  }
+
+  static async getScheduleList(req: Request, res: Response, next: NextFunction) {
+    try {
+        const lineUserId = LineUserIdSchema.parse(req.query.lineUserId);
+        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+        const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+        if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
+
+        const tasks = await prisma.scheduledTask.findMany({
+            where: { userId: user.id },
+            orderBy: { scheduledAt: 'desc' },
+            take: 50
+        });
+
+        const config = CompanyService.getConfig(user.companyId!, user.internalCompanyId!);
+        const defaultConfig = CompanyService.getDefaultConfig();
+
+        res.json({ 
+            success: true, 
+            data: {
+                tasks,
+                defaultLocation: config?.location || defaultConfig?.location
+            }
+        });
+    } catch (e) { next(e); }
+  }
+
+  static async createSchedules(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { lineUserId, schedules } = req.body;
+        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+        const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+        if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
+
+        for (const s of schedules) {
+            const date = new Date(s.time);
+            const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59);
+
+            const count = await prisma.scheduledTask.count({
+                where: {
+                    userId: user.id,
+                    scheduledAt: { gte: startOfDay, lte: endOfDay },
+                    status: { in: ['PENDING', 'COMPLETED'] }
+                }
+            });
+
+            if (count >= 2) {
+                return res.status(400).json({ success: false, message: `Daily limit reached for ${startOfDay.toLocaleDateString()}` });
+            }
+            
+            const duplicate = await prisma.scheduledTask.findFirst({
+                where: {
+                    userId: user.id,
+                    scheduledAt: date,
+                    status: 'PENDING'
+                }
+            });
+            if (duplicate) {
+                return res.status(400).json({ success: false, message: `Duplicate schedule at ${date.toLocaleString()}` });
+            }
+        }
+
+        await prisma.scheduledTask.createMany({
+            data: schedules.map((s: any) => ({
+                userId: user.id,
+                scheduledAt: new Date(s.time),
+                lat: s.lat,
+                lng: s.lng,
+                status: 'PENDING'
+            }))
+        });
+
+        res.json({ success: true });
+    } catch (e) { next(e); }
+  }
+
+  static async cancelSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { lineUserId, taskId } = req.body;
+        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+        const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+        if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
+
+        await prisma.scheduledTask.update({
+            where: { id: taskId, userId: user.id },
+            data: { status: 'CANCELLED' }
+        });
+
+        res.json({ success: true });
     } catch (e) { next(e); }
   }
 }

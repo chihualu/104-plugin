@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { encrypt, decrypt } from '../encryption';
 import { HR104Adapter } from '../adapters/hr104.adapter';
+import { CompanyService } from './company.service';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
 
@@ -59,12 +60,14 @@ export class AuthService {
       
       // Generate a fresh token for the returning user
       const token = this.generateToken(user);
+      const companyName = await CompanyService.getCompanyName(user.companyId!, user.internalCompanyId!);
 
       return {
         isBound: true,
         token,
         empId: user.empId,
         companyId: user.companyId,
+        companyName,
         internalId: user.internalCompanyId,
         stats: { checkIn: checkInCount, audit: auditCount }
       };

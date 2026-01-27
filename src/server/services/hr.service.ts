@@ -2,10 +2,9 @@ import { PrismaClient } from '@prisma/client';
 import { LRUCache } from 'lru-cache';
 import * as cheerio from 'cheerio';
 import { AuthService } from './auth.service';
+import { CompanyService } from './company.service';
 import { HR104Adapter } from '../adapters/hr104.adapter';
 import { logger } from '../utils/logger';
-import fs from 'fs';
-import path from 'path';
 
 const prisma = new PrismaClient();
 
@@ -15,15 +14,6 @@ const salaryCache = new LRUCache<string, any>({
   ttl: 1000 * 60 * 10,
 });
 
-let APP_CONFIG: any = { default: { checkIn: { searchKeyword: '刷卡' } } };
-try {
-  const configPath = path.join(__dirname, '../../../config/104.config.json');
-  if (fs.existsSync(configPath)) {
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    APP_CONFIG = JSON.parse(raw);
-  }
-} catch (e) { logger.warn('Config load failed, using default'); }
-
 export class HRService {
   
   static async applyCheckIn(lineUserId: string, payload: any, progressCallback?: (data: any) => void) {
@@ -32,17 +22,12 @@ export class HRService {
     const fmtStart = (timeStart || '09:00').replace(':', '');
     const fmtEnd = (timeEnd || '18:00').replace(':', '');
 
-    // Get Worksheet ID
-    let companyConfig;
-    if (Array.isArray(APP_CONFIG.companies)) {
-        companyConfig = APP_CONFIG.companies.find((c: any) => 
-            c.groupUBINo === creds.companyId && 
-            (c.companyID === creds.internalId || c.companyID === '*')
-        )?.checkIn;
-    }
-    const defaultConfig = APP_CONFIG.default?.checkIn;
-    let worksheetId = companyConfig?.fixedWorksheetId;
-    const searchKeyword = companyConfig?.searchKeyword || defaultConfig?.searchKeyword || '刷卡';
+    // Get Worksheet ID from CompanyService
+    const companyConfig = CompanyService.getConfig(creds.companyId, creds.internalId);
+    const defaultConfig = CompanyService.getDefaultConfig()?.checkIn;
+    
+    let worksheetId = companyConfig?.checkIn?.fixedWorksheetId;
+    const searchKeyword = companyConfig?.checkIn?.searchKeyword || defaultConfig?.searchKeyword || '刷卡';
 
     if (!worksheetId && creds.companyId !== 'TEST') {
         try {
@@ -271,20 +256,10 @@ export class HRService {
       
       const key = `${u.companyId}_${u.internalCompanyId || '?'}`;
       if (!companyStats[key]) {
-        // Find company name from config
-        let companyName = u.companyId; // Default to UBI No
-        if (Array.isArray(APP_CONFIG.companies)) {
-            const config = APP_CONFIG.companies.find((c: any) => 
-                c.groupUBINo === u.companyId && 
-                (c.companyID === u.internalCompanyId || c.companyID === '*')
-            );
-            if (config && config.companyName) {
-                companyName = config.companyName;
-            }
-        }
+        const companyName = await CompanyService.getCompanyName(u.companyId!, u.internalCompanyId || '?');
 
         companyStats[key] = {
-          companyId: u.companyId, // Still needed for key but display name is separate
+          companyId: u.companyId,
           companyName,
           internalId: u.internalCompanyId || '?',
           checkInTotal: 0,
