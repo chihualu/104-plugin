@@ -2,6 +2,7 @@
   "companies": [
     {
       "groupUBINo": "YOUR_COMPANY_UBI_NO",
+      "companyName": "Your Company Name",
       "companyID": "1",
       "checkIn": {
         "fixedWorksheetId": "23",
