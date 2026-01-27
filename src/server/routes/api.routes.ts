@@ -23,6 +23,7 @@ router.use(apiLimiter);
 // Auth Routes
 router.post('/bind', authLimiter, AuthController.bind);
 router.get('/check-binding', AuthController.checkBinding);
+router.get('/companies', AuthController.getCompanies);
 
 // HR Routes
 router.use(authenticate); // Attempt to parse token
@@ -35,6 +36,8 @@ router.get('/salary/years', HRController.getSalaryYears);
 router.get('/salary/list', HRController.getSalaryList);
 router.get('/salary/detail', HRController.getSalaryDetail);
 router.get('/salary/summary', HRController.getSalarySummary);
+
+router.get('/team/attendance', HRController.getTeamAttendance);
 
 router.get('/leave/status', HRController.getLeaveStatus);
 

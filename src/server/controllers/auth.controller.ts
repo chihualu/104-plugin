@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/auth.service';
-import { BindRequestSchema, LineUserIdSchema } from '../schemas/api.schema';
+import { BindRequestSchema, LineUserIdSchema, GroupUBINoSchema } from '../schemas/api.schema';
+import { HR104Adapter } from '../adapters/hr104.adapter';
 
 export class AuthController {
   static async bind(req: Request, res: Response, next: NextFunction) {
@@ -16,6 +17,14 @@ export class AuthController {
       const lineUserId = LineUserIdSchema.parse(req.query.lineUserId);
       const data = await AuthService.getBindingStatus(lineUserId);
       res.json({ success: true, data });
+    } catch (e) { next(e); }
+  }
+
+  static async getCompanies(req: Request, res: Response, next: NextFunction) {
+    try {
+      const groupUBINo = GroupUBINoSchema.parse(req.query.groupUBINo);
+      const list = await HR104Adapter.getCompanyList(groupUBINo);
+      res.json({ success: true, data: list });
     } catch (e) { next(e); }
   }
 }
