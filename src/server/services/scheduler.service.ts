@@ -65,10 +65,21 @@ export class SchedulerService {
 
     logger.info({ msg: `Found ${tasks.length} tasks to execute for ${currentMinute.toISOString()}` });
 
-    // Execute tasks in parallel (or serial if server sensitive, let's use small batches or serial)
+    // Execute tasks
     for (const task of tasks) {
       try {
-        await this.executeTask(task);
+        const nowMs = new Date().getTime();
+        const scheduledMs = new Date(task.scheduledAt).getTime();
+        const delay = Math.max(0, scheduledMs - nowMs);
+
+        if (delay > 0) {
+            setTimeout(() => {
+                this.executeTask(task).catch(e => logger.error({ msg: `Delayed task ${task.id} failed`, error: e.message }));
+            }, delay);
+        } else {
+            // Already passed or exact time, execute immediately
+            await this.executeTask(task);
+        }
       } catch (e) {
         logger.error({ msg: `Task ${task.id} execution failed`, error: (e as any).message });
       }
@@ -90,8 +101,8 @@ export class SchedulerService {
       await HR104Adapter.insertCard(creds, {
         lat: task.lat,
         lng: task.lng,
-        address: 'Scheduled Check-in',
-        memo: 'Auto-executed by Scheduler'
+        address: '',
+        memo: ''
       });
 
       // 3. Update Status
@@ -107,7 +118,7 @@ export class SchedulerService {
       await prisma.usageLog.create({
         data: {
           userId: task.userId,
-          action: 'CHECK_IN',
+          action: 'SCHEDULE',
           count: 1,
           details: `Scheduled at ${task.scheduledAt.toISOString()}`
         }

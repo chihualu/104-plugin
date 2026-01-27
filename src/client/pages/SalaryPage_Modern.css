@@ -1,0 +1,12 @@
+.full-screen-modal .adm-modal-content {
+  height: 90vh;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.full-screen-modal .adm-modal-body {
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+}

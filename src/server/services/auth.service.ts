@@ -55,8 +55,9 @@ export class AuthService {
     });
 
     if (user) {
-      const checkInCount = user.logs.filter(l => l.action === 'CHECK_IN').reduce((acc, cur) => acc + cur.count, 0);
-      const auditCount = user.logs.filter(l => l.action === 'AUDIT').reduce((acc, cur) => acc + cur.count, 0);
+      const checkInCount = user.logs.filter((l: any) => l.action === 'CHECK_IN').reduce((acc, cur) => acc + cur.count, 0);
+      const auditCount = user.logs.filter((l: any) => l.action === 'AUDIT').reduce((acc, cur) => acc + cur.count, 0);
+      const scheduledTasksCount = user.logs.filter((l: any) => l.action === 'SCHEDULE').reduce((acc, cur) => acc + cur.count, 0);
       
       // Generate a fresh token for the returning user
       const token = this.generateToken(user);
@@ -69,7 +70,7 @@ export class AuthService {
         companyId: user.companyId,
         companyName,
         internalId: user.internalCompanyId,
-        stats: { checkIn: checkInCount, audit: auditCount }
+        stats: { checkIn: checkInCount, audit: auditCount, scheduledTasks: scheduledTasksCount }
       };
     } else {
       return { isBound: false };

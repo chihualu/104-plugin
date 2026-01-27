@@ -20,10 +20,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://static.line-scdn.net", "https://*.line.me"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https://*.line-scdn.net"],
-      connectSrc: ["'self'", "https://*.line.me", "https://*.openstreetmap.org"], // OpenStreetMap for GPS check
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://static.line-scdn.net", "https://*.line.me", "https://static.cloudflareinsights.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"], // Leaflet CSS
+      imgSrc: ["'self'", "data:", "https://*.line-scdn.net", "https://*.openstreetmap.org", "https://cdnjs.cloudflare.com"],
+      connectSrc: ["'self'", "https://*.line.me", "https://*.openstreetmap.org", "https://liffsdk.line-scdn.net"], // OpenStreetMap for GPS check
       frameSrc: ["'self'", "https://static.line-scdn.net"], 
     },
   },

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Toast, AutoCenter, CheckList, Modal, ProgressBar, NavBar } from 'antd-mobile';
 import { LoopOutline } from 'antd-mobile-icons';
 import axios from 'axios';
+import FullScreenLoading from '../components/FullScreenLoading';
 
 interface Props {
   lineUserId: string;
@@ -97,7 +98,7 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
             percent={progress.total > 0 ? (progress.current / progress.total) * 100 : 0} 
             style={{ marginBottom: 15 }}
           />
-          <div style={{ height: 100, overflowY: 'auto', background: '#f5f5f5', padding: 8, borderRadius: 4, fontSize: 12 }}>
+          <div style={{ height: 100, overflowY: 'auto', background: 'rgba(0,0,0,0.04)', padding: 8, borderRadius: 4, fontSize: 12 }}>
             {progress.logs.map((log, idx) => (
               <div key={idx}>{log}</div>
             ))}
@@ -110,15 +111,12 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
   );
 
   return (
-    <div style={{ background: '#f5f5f5', minHeight: '100vh', paddingBottom: 80 }}>
+    <div style={{ background: 'var(--color-background)', minHeight: '100vh', paddingBottom: 80 }}>
       <NavBar onBack={onBack}>表單簽核</NavBar>
       
-      {loadingAudit ? (
-        <AutoCenter style={{ marginTop: 50, flexDirection: 'column' }}>
-          <LoopOutline fontSize={48} spin />
-          <div style={{ marginTop: 20 }}>讀取中...</div>
-        </AutoCenter>
-      ) : (
+      <FullScreenLoading visible={loadingAudit} text='讀取中...' />
+      
+      {!loadingAudit && (
         <div style={{ padding: 12 }}>
           {auditList.length === 0 ? (
             <AutoCenter style={{ marginTop: 50 }}>目前沒有待簽核文件</AutoCenter>
@@ -144,7 +142,7 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
                     <CheckList.Item key={item.EnWorksheetDataID || idx} value={item.EnWorksheetDataID || `unknown_${idx}`}>
                       <div style={{ padding: '4px 0' }}>
                         <div style={{ fontWeight: 'bold' }}>{item.ApplyName || '未知'} <span style={{fontWeight:'normal', fontSize:12}}>({item._category || '表單'})</span></div>
-                        <div style={{ fontSize: 12, color: '#666' }}>
+                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
                           {item.ApplyDatetime} | {item.WsdStatus}
                         </div>
                         <div style={{ fontSize: 12 }}>{item.ApplyDeptName}</div>
@@ -159,7 +157,7 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
       )}
 
       {auditList.length > 0 && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: 12, background: '#fff', borderTop: '1px solid #eee' }}>
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: 12, background: 'var(--color-background)', borderTop: '1px solid #eee' }}>
           <Button 
             block 
             color='primary' 

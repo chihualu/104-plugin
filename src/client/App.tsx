@@ -1,9 +1,8 @@
 import { useEffect, useState, Suspense, lazy } from 'react';
 import liff from '@line/liff';
-import { AutoCenter, Toast } from 'antd-mobile';
-import { LoopOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 import { ApiResponse } from '../shared/types';
+import FullScreenLoading from './components/FullScreenLoading';
 
 // Lazy load pages
 const InitPage = lazy(() => import('./pages/InitPage'));
@@ -14,7 +13,7 @@ const CheckInNowPage = lazy(() => import('./pages/CheckInNowPage'));
 const AuditPage = lazy(() => import('./pages/AuditPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
-const SalaryPage = lazy(() => import('./pages/SalaryPage'));
+const SalaryPage = lazy(() => import('./pages/SalaryPage_Modern'));
 const TeamAttendancePage = lazy(() => import('./pages/TeamAttendancePage'));
 const SchedulePage = lazy(() => import('./pages/SchedulePage'));
 
@@ -78,14 +77,8 @@ export const App = () => {
     }
   };
 
-  const LoadingFallback = (
-    <AutoCenter style={{ marginTop: 50 }}>
-      <LoopOutline fontSize={48} spin />
-    </AutoCenter>
-  );
-
   return (
-    <Suspense fallback={LoadingFallback}>
+    <Suspense fallback={<FullScreenLoading text='載入頁面中...' />}>
       {state === 'INIT' && <InitPage debugMsg={debugMsg} />}
       
       {state === 'BINDING' && (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Form, Input, Toast, Calendar, Card, NavBar, Modal, ProgressBar } from 'antd-mobile';
 import { CheckInPayload, ApiResponse } from '../../shared/types';
+import dayjs from 'dayjs';
 
 interface Props {
   lineUserId: string;
@@ -8,13 +9,24 @@ interface Props {
 }
 
 export default function CheckInPage({ lineUserId, onBack }: Props) {
-  const [dates, setDates] = useState<Date[]>([]);
+  const [dates, setDates] = useState<string[]>([]);
   const [showCalendar, setShowCalendar] = useState(false);
   const [startTime, setStartTime] = useState('08:45');
   const [endTime, setEndTime] = useState('17:45');
   const [reason, setReason] = useState('忘記打卡');
   
   const [progress, setProgress] = useState({ visible: false, title: '', current: 0, total: 0, logs: [] as string[] });
+
+  const toggleDate = (date: Date | null) => {
+    if (!date) return;
+    const d = dayjs(date).format('YYYY-MM-DD');
+    setDates(prev => {
+        if (prev.includes(d)) {
+            return prev.filter(i => i !== d);
+        }
+        return [...prev, d];
+    });
+  };
 
   const onCheckIn = async () => {
     if (!dates || dates.length === 0) {
@@ -27,7 +39,7 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
     try {
       const payload: CheckInPayload = {
         lineUserId,
-        dates: dates.map(d => d.toISOString().split('T')[0]),
+        dates: dates, // Already strings
         timeStart: startTime,
         timeEnd: endTime,
         reason: reason
@@ -96,7 +108,7 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
             percent={progress.total > 0 ? (progress.current / progress.total) * 100 : 0} 
             style={{ marginBottom: 15 }}
           />
-          <div style={{ height: 100, overflowY: 'auto', background: '#f5f5f5', padding: 8, borderRadius: 4, fontSize: 12 }}>
+          <div style={{ height: 100, overflowY: 'auto', background: 'rgba(0,0,0,0.04)', padding: 8, borderRadius: 4, fontSize: 12 }}>
             {progress.logs.map((log, idx) => (
               <div key={idx}>{log}</div>
             ))}
@@ -109,7 +121,7 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
   );
 
   return (
-    <div style={{ background: '#fff', minHeight: '100vh' }}>
+    <div style={{ background: 'var(--color-background)', minHeight: '100vh' }}>
       <NavBar onBack={onBack}>補打卡申請</NavBar>
       <div style={{ padding: 20 }}>
         
@@ -122,28 +134,19 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
               <div className='custom-calendar'>
                 <Calendar
                   selectionMode='single'
-                  val={null}
-                  onChange={() => {}} 
+                  value={null}
+                  onChange={toggleDate} 
                   renderDate={(date) => {
-                    const dStr = date.toISOString().split('T')[0];
-                    const isSelected = dates.some(d => d.toISOString().split('T')[0] === dStr);
+                    const dStr = dayjs(date).format('YYYY-MM-DD');
+                    const isSelected = dates.includes(dStr);
                     return (
                       <div
-                        className="adm-calendar-date-content"
-                        onClick={(e) => {
-                          e.stopPropagation(); 
-                          if (isSelected) {
-                            setDates(dates.filter(d => d.toISOString().split('T')[0] !== dStr));
-                          } else {
-                            setDates([...dates, date]);
-                          }
-                        }}
                         style={{
                           background: isSelected ? 'var(--adm-color-primary)' : 'transparent',
                           color: isSelected ? '#fff' : 'inherit',
-                          borderRadius: 4,
+                          borderRadius: '50%',
                           display: 'flex', justifyContent: 'center', alignItems: 'center',
-                          height: '100%'
+                          width: '32px', height: '32px', margin: '0 auto'
                         }}
                       >
                         {date.getDate()}
