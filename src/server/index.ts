@@ -1,17 +1,33 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import bodyParser from 'body-parser';
 import path from 'path';
 import apiRoutes from './routes/api.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { requestLogger } from './middleware/logger.middleware';
 import { logger } from './utils/logger';
+import { SchedulerService } from './services/scheduler.service';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Trust Proxy for Rate Limiting
 app.set('trust proxy', 1);
+
+// Security Headers (Helmet)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://static.line-scdn.net", "https://*.line.me"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https://*.line-scdn.net"],
+      connectSrc: ["'self'", "https://*.line.me", "https://*.openstreetmap.org"], // OpenStreetMap for GPS check
+      frameSrc: ["'self'", "https://static.line-scdn.net"], 
+    },
+  },
+}));
 
 // Middleware
 app.use(cors());
@@ -32,6 +48,9 @@ app.get(/(.*)/, (req, res) => {
 
 // Global Error Handler
 app.use(errorHandler);
+
+// Initialize Scheduler
+SchedulerService.init();
 
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Server running on http://0.0.0.0:${PORT}`);

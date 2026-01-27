@@ -20,8 +20,22 @@ model UserBinding {
   updatedAt         DateTime @updatedAt
   
   logs              UsageLog[]
-  
-  @@index([lineUserId])
+  scheduledTasks    ScheduledTask[]
+}
+
+model ScheduledTask {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        UserBinding @relation(fields: [userId], references: [id])
+  scheduledAt DateTime // Target execution time
+  lat         Float
+  lng         Float
+  status      String   @default("PENDING") // PENDING, COMPLETED, FAILED, EXPIRED, CANCELLED
+  result      String?  // Response from API
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([scheduledAt, status])
 }
 
 model UsageLog {

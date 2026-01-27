@@ -20,6 +20,10 @@
   "default": {
     "checkIn": {
       "searchKeyword": "刷卡"
+    },
+    "location": {
+      "lat": 25.04791,
+      "lng": 121.55823
     }
   }
 }

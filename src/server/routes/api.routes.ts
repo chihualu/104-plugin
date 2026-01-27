@@ -44,6 +44,10 @@ router.get('/leave/status', HRController.getLeaveStatus);
 router.get('/audit/list', HRController.getAuditList);
 router.post('/audit/approve', HRController.approveWorkflows);
 
+router.get('/schedule/list', HRController.getScheduleList);
+router.post('/schedule/create', HRController.createSchedules);
+router.post('/schedule/cancel', HRController.cancelSchedule);
+
 router.get('/usages/stats', HRController.getUsagesStats);
 
 export default router;

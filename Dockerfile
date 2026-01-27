@@ -3,6 +3,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install dependencies and set timezone
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Taipei
+
 # Install dependencies
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
@@ -20,6 +24,10 @@ RUN npm run build
 FROM node:20-alpine
 
 WORKDIR /app
+
+# Set timezone
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Taipei
 
 # Install production dependencies only
 COPY package.json package-lock.json ./

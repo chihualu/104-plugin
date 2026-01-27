@@ -16,8 +16,9 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const SalaryPage = lazy(() => import('./pages/SalaryPage'));
 const TeamAttendancePage = lazy(() => import('./pages/TeamAttendancePage'));
+const SchedulePage = lazy(() => import('./pages/SchedulePage'));
 
-type AppState = 'INIT' | 'BINDING' | 'DASHBOARD' | 'CHECK_IN' | 'CHECK_IN_NOW' | 'AUDIT' | 'SETTINGS' | 'USAGES' | 'SALARY' | 'TEAM_ATTENDANCE';
+type AppState = 'INIT' | 'BINDING' | 'DASHBOARD' | 'CHECK_IN' | 'CHECK_IN_NOW' | 'AUDIT' | 'SETTINGS' | 'USAGES' | 'SALARY' | 'TEAM_ATTENDANCE' | 'SCHEDULE';
 
 export const App = () => {
   const [state, setState] = useState<AppState>('INIT');
@@ -117,6 +118,10 @@ export const App = () => {
 
       {state === 'TEAM_ATTENDANCE' && (
         <TeamAttendancePage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+      )}
+
+      {state === 'SCHEDULE' && (
+        <SchedulePage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
       )}
 
       {state === 'SETTINGS' && (
