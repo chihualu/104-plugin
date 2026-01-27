@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 80">
+  <defs>
+    <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6F4E37" /> <!-- Coffee -->
+      <stop offset="100%" stop-color="#8D6E63" /> <!-- Lighter Brown -->
+    </linearGradient>
+  </defs>
+
+  <!-- Icon Group -->
+  <g transform="translate(45, 40)">
+    <!-- Abstract shape -->
+    <rect x="-22" y="-22" width="44" height="44" rx="12" fill="url(#mainGradient)" transform="rotate(-10)" />
+    <rect x="-22" y="-22" width="44" height="44" rx="12" fill="#8FBC8F" fill-opacity="0.8" transform="rotate(20)" />
+    <!-- White Overlay for depth -->
+    <rect x="-22" y="-22" width="44" height="44" rx="12" fill="url(#mainGradient)" transform="rotate(5)" />
+    
+    <!-- Letter 'e' or check hint -->
+    <path d="M-8 2 L0 10 L12 -6" stroke="#F5F0E6" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="rotate(5)"/>
+  </g>
+
+  <!-- Text -->
+  <text x="100" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="34" fill="#3E2723" letter-spacing="1">104</text>
+  <text x="170" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="300" font-size="34" fill="#5D4037">eHR</text>
+  
+  <!-- "Assistant" -->
+  <text x="250" y="51" font-family="'PingFang TC', 'Microsoft JhengHei', sans-serif" font-weight="bold" font-size="26" fill="#6F4E37">助手</text>
+  
+  <!-- Dots decoration -->
+  <circle cx="330" cy="45" r="3" fill="#8FBC8F" />
+  <circle cx="340" cy="45" r="3" fill="#6F4E37" />
+</svg>

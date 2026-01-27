@@ -3,6 +3,8 @@ import { AutoCenter, Card, Grid, Space, Badge } from 'antd-mobile';
 import { CalendarOutline, CheckCircleOutline, FileOutline, SetOutline, TeamOutline, LocationOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 
+import logo from '../assets/logo.svg';
+
 interface Props {
   empId: string;
   lineUserId: string;
@@ -25,84 +27,80 @@ export default function DashboardPage({ empId, lineUserId, onNavigate }: Props) 
     }
   }, [lineUserId]);
   return (
-    <div style={{ padding: 20, background: '#f5f5f5', minHeight: '100vh' }}>
+    <div style={{ padding: 20, background: 'var(--color-background)', minHeight: '100vh' }}>
       <AutoCenter style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0 }}>104 eHR 助手</h2>
+        <img src={logo} alt="104 eHR 助手" style={{ height: 60 }} />
       </AutoCenter>
 
-      <Card title='使用者資訊' style={{ marginBottom: 20 }}>
+      <Card title='使用者資訊' style={{ marginBottom: 20, border: '1px solid rgba(0,0,0,0.12)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
         <Space align='center'>
             <CheckCircleOutline color='var(--adm-color-success)' fontSize={24} />
             <span style={{ fontSize: 18, fontWeight: 'bold' }}>{empId}</span>
-            <span style={{ color: '#666' }}>服務運行中</span>
+            <span style={{ color: 'var(--color-text-secondary)' }}>服務運行中</span>
         </Space>
       </Card>
 
       <Grid columns={2} gap={16}>
         <Grid.Item onClick={() => onNavigate('CHECK_IN_NOW')}>
-          <Card style={{ height: 60, display: 'flex', alignItems: 'center' }}>
-              <Space align='center' style={{ width: '100%' }}>
-                <LocationOutline fontSize={28} color='#00b578' />
-                <div style={{ fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>即時打卡</div>
-              </Space>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(143, 188, 143, 0.15)' }}>
+              <LocationOutline fontSize={32} color='var(--color-secondary)' />
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>即時打卡</div>
           </Card>
         </Grid.Item>
 
         <Grid.Item onClick={() => onNavigate('SCHEDULE')}>
-          <Card style={{ height: 60, display: 'flex', alignItems: 'center' }}>
-              <Space align='center' style={{ width: '100%' }}>
-                <CalendarOutline fontSize={28} color='#722ed1' />
-                <div style={{ fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>預約打卡</div>
-              </Space>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(111, 78, 55, 0.1)' }}>
+              <CalendarOutline fontSize={32} color='var(--color-primary)' />
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>預約打卡</div>
           </Card>
         </Grid.Item>
 
         <Grid.Item onClick={() => onNavigate('CHECK_IN')}>
-          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <CalendarOutline fontSize={32} color='#1677ff' />
-              <div style={{ marginTop: 8 }}>補打卡</div>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(112, 128, 144, 0.12)' }}>
+              <CalendarOutline fontSize={32} color='#5D4037' />
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>補打卡</div>
           </Card>
         </Grid.Item>
 
         <Grid.Item onClick={() => onNavigate('AUDIT')}>
-          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(204, 78, 92, 0.1)' }}>
               <Badge content={auditCount ? auditCount : null} style={{ '--right': '-10px', '--top': '-5px' }}>
-                <FileOutline fontSize={32} color='#ff4d4f' />
+                <FileOutline fontSize={32} color='var(--adm-color-danger)' />
               </Badge>
-              <div style={{ marginTop: 8 }}>表單簽核</div>
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>表單簽核</div>
           </Card>
         </Grid.Item>
         
         <Grid.Item onClick={() => onNavigate('SALARY')}>
-          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <FileOutline fontSize={32} color='#ff8f1f' />
-              <div style={{ marginTop: 8 }}>薪資查詢</div>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(218, 165, 32, 0.15)' }}>
+              <FileOutline fontSize={32} color='var(--adm-color-warning)' />
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>薪資查詢</div>
           </Card>
         </Grid.Item>
 
         <Grid.Item onClick={() => onNavigate('TEAM_ATTENDANCE')}>
-          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <TeamOutline fontSize={32} color='#722ed1' />
-              <div style={{ marginTop: 8 }}>部屬出勤</div>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(147, 112, 219, 0.12)' }}>
+              <TeamOutline fontSize={32} color='var(--color-primary)' />
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>部屬出勤</div>
           </Card>
         </Grid.Item>
 
         <Grid.Item onClick={() => onNavigate('USAGES')}>
-          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <TeamOutline fontSize={32} color='#555' />
-              <div style={{ marginTop: 8 }}>使用統計</div>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(128, 128, 128, 0.1)' }}>
+              <TeamOutline fontSize={32} color='var(--color-text-secondary)' />
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>使用統計</div>
           </Card>
         </Grid.Item>
 
         <Grid.Item onClick={() => onNavigate('SETTINGS')}>
-          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <SetOutline fontSize={32} color='#722ed1' />
-              <div style={{ marginTop: 8 }}>個人資訊</div>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(111, 78, 55, 0.15)' }}>
+              <SetOutline fontSize={32} color='var(--color-primary)' />
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>個人資訊</div>
           </Card>
         </Grid.Item>
       </Grid>
 
-      <div style={{ marginTop: 40, textAlign: 'center', color: '#999', fontSize: 12 }}>
+      <div style={{ marginTop: 40, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 12 }}>
         v1.2.0 @ 104 eHR Optimization
       </div>
     </div>

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { NavBar, Button, List, Picker, Tag, AutoCenter, Toast, Tabs } from 'antd-mobile';
 import { LoopOutline, CalendarOutline, CheckCircleOutline } from 'antd-mobile-icons';
 import axios from 'axios';
+import FullScreenLoading from '../components/FullScreenLoading';
 
 interface Props {
   lineUserId: string;
@@ -66,7 +67,7 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
 
   const renderList = (records: AttendanceRecord[], emptyMsg: string, isPunch: boolean) => {
     if (records.length === 0) {
-      return <AutoCenter style={{ marginTop: 40, color: '#999' }}>{emptyMsg}</AutoCenter>;
+      return <AutoCenter style={{ marginTop: 40, color: 'var(--color-text-tertiary)' }}>{emptyMsg}</AutoCenter>;
     }
     return (
       <List>
@@ -80,7 +81,7 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontSize: 14 }}>
                 <span style={{ fontWeight: 'bold' }}>{r.empName}</span>
-                <span style={{ fontSize: 12, color: '#999', marginLeft: 6 }}>{r.dept}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginLeft: 6 }}>{r.dept}</span>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <Tag color={isPunch ? 'primary' : 'warning'} style={{ fontSize: 12 }}>
@@ -95,10 +96,10 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
   };
 
   return (
-    <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
+    <div style={{ background: 'var(--color-background)', minHeight: '100vh' }}>
       <NavBar onBack={onBack}>部屬出勤</NavBar>
       
-      <div style={{ padding: 12, background: '#fff' }}>
+      <div style={{ padding: 12, background: 'var(--color-background)' }}>
         <Button 
           block 
           onClick={() => setPickerVisible(true)}
@@ -120,13 +121,10 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
         />
       </div>
 
-      {loading ? (
-        <AutoCenter style={{ marginTop: 50 }}>
-          <LoopOutline fontSize={32} spin />
-          <div style={{ marginTop: 10, color: '#666' }}>查詢中，請稍候...</div>
-        </AutoCenter>
-      ) : (
-        <div style={{ marginTop: 10, background: '#fff' }}>
+      <FullScreenLoading visible={loading} text='查詢中，請稍候...' />
+
+      {!loading && (
+        <div style={{ marginTop: 10, background: 'var(--color-background)' }}>
           <Tabs>
             <Tabs.Tab title={`請假狀況 (${data.leaves.length})`} key='leaves'>
               {renderList(data.leaves, '本月無請假紀錄', false)}

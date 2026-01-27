@@ -58,8 +58,32 @@ export default function LocationPicker({ value, defaultValue, onChange }: Props)
 
   const handleReset = () => {
       if (defaultValue) {
-          handleMapClick(new L.LatLng(defaultValue.lat, defaultValue.lng));
+          const newPos = new L.LatLng(defaultValue.lat, defaultValue.lng);
+          handleMapClick(newPos);
+          if (mapRef.current) {
+              mapRef.current.flyTo([defaultValue.lat, defaultValue.lng], 15);
+          }
       }
+  };
+
+  const handleCurrentLocation = () => {
+      if (!navigator.geolocation) {
+          alert('Geolocation is not supported by your browser');
+          return;
+      }
+      navigator.geolocation.getCurrentPosition(
+          (position) => {
+              const { latitude, longitude } = position.coords;
+              const newPos = new L.LatLng(latitude, longitude);
+              handleMapClick(newPos);
+              if (mapRef.current) {
+                  mapRef.current.flyTo([latitude, longitude], 15);
+              }
+          },
+          () => {
+              alert('Unable to retrieve your location');
+          }
+      );
   };
 
   const handleInputChange = (key: 'lat' | 'lng', val: string) => {
@@ -74,7 +98,7 @@ export default function LocationPicker({ value, defaultValue, onChange }: Props)
 
   return (
     <div>
-      <div style={{ height: '250px', marginBottom: 10, borderRadius: 8, overflow: 'hidden', border: '1px solid #ddd' }}>
+      <div style={{ height: '250px', marginBottom: 10, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(0, 0, 0, 0.12)' }}>
         <MapContainer 
             center={pos} 
             zoom={15} 
@@ -90,7 +114,8 @@ export default function LocationPicker({ value, defaultValue, onChange }: Props)
       </div>
 
       <Space align='center' style={{ marginBottom: 10 }}>
-        <Button size='mini' fill='outline' onClick={handleReset}>重置為預設</Button>
+        <Button size='mini' fill='outline' onClick={handleReset}>公司預設</Button>
+        <Button size='mini' fill='outline' onClick={handleCurrentLocation}>目前位置</Button>
       </Space>
 
       <Form.Item label='經度 (Lng)'>

@@ -89,7 +89,49 @@ export class HRService {
 
   static async getSalaryDetail(lineUserId: string, id: string) {
     const creds = await AuthService.getUserCredentials(lineUserId);
-    return HR104Adapter.getSalaryDetail(creds, id);
+    const rawHtml = await HR104Adapter.getSalaryDetail(creds, id);
+    
+    if (!rawHtml) return { html: '', items: [] };
+
+    const html = HR104Adapter.unescapeHTML(rawHtml);
+    const $ = cheerio.load(html);
+    const items: { label: string, value: string, type?: 'earning' | 'deduction' | 'info' }[] = [];
+
+    // Heuristic parsing for 104 Salary HTML Table
+    // Strategy: Look for rows with 2 or 4 columns.
+    $('table tr').each((i, el) => {
+        const tds = $(el).find('td');
+        
+        // Helper to add item
+        const addItem = (labelTd: any, valueTd: any) => {
+            const label = $(labelTd).text().trim();
+            const value = $(valueTd).text().trim();
+            if (label && value) {
+                // Guess type based on value or label
+                let type: 'earning' | 'deduction' | 'info' = 'info';
+                const num = parseFloat(value.replace(/,/g, ''));
+                
+                // Common keywords for Deductions
+                if (label.includes('扣') || label.includes('稅') || label.includes('勞保') || label.includes('健保')) {
+                    type = 'deduction';
+                } else if (!isNaN(num) && num > 0 && !label.includes('費') && !label.includes('率')) {
+                    // Likely earning if positive number and not a rate/fee info
+                    type = 'earning';
+                }
+                
+                items.push({ label, value, type });
+            }
+        };
+
+        if (tds.length === 2) {
+             addItem(tds[0], tds[1]);
+        } else if (tds.length === 4) {
+             addItem(tds[0], tds[1]);
+             addItem(tds[2], tds[3]);
+        }
+    });
+
+    return { html, items };
   }
 
   static async getSalarySummary(lineUserId: string, year: string) {
@@ -201,7 +243,50 @@ export class HRService {
 
   static async getLeaveStatus(lineUserId: string) {
     const creds = await AuthService.getUserCredentials(lineUserId);
-    return HR104Adapter.getLeaveStatus(creds);
+    const rawHtml = await HR104Adapter.getLeaveStatus(creds);
+    
+    // Parse HTML to JSON
+    const $ = cheerio.load(rawHtml);
+    const data: any[] = [];
+    let currentLeave: any = null;
+
+    $('table tr').each((i, el) => {
+        const tds = $(el).find('td');
+        
+        // Header Row: contains "假勤名稱" and spans 2 columns
+        if (tds.length === 1 && $(tds[0]).attr('colspan') === '2') {
+            const headerText = $(tds[0]).text().trim();
+            if (headerText.includes('假勤名稱')) {
+                if (currentLeave) data.push(currentLeave);
+                currentLeave = {
+                    name: headerText.replace('假勤名稱', '').trim(),
+                    total: '',
+                    used: '',
+                    balance: '',
+                    expiry: ''
+                };
+            }
+        } 
+        // Detail Row: contains attribute name and value in two cells
+        else if (tds.length === 2 && currentLeave) {
+            const label = $(tds[0]).text().trim();
+            const value = $(tds[1]).text().trim();
+            
+            if (label.includes('可休')) {
+                currentLeave.total = value;
+                // Sometimes validity is in the same string, e.g. "112 小時 / 2026/12/31"
+                if (value.includes('/')) {
+                    currentLeave.expiry = value.split('/').pop()?.trim() || '';
+                }
+            }
+            else if (label.includes('已休')) currentLeave.used = value;
+            else if (label.includes('剩餘')) currentLeave.balance = value;
+        }
+    });
+    
+    if (currentLeave) data.push(currentLeave);
+    
+    return data;
   }
 
   static async getAuditList(lineUserId: string) {
@@ -244,40 +329,62 @@ export class HRService {
   }
 
   static async getUsagesStats() {
-    const logs = await prisma.usageLog.findMany({
-      include: { user: true }
+    // 1. Get User Counts (Bound Users)
+    const userGroups = await prisma.userBinding.groupBy({
+        by: ['companyId', 'internalCompanyId'],
+        _count: { id: true }
     });
 
     const companyStats: Record<string, any> = {};
+
+    // Initialize stats with user counts
+    for (const g of userGroups) {
+        if (!g.companyId) continue;
+        const key = `${g.companyId}_${g.internalCompanyId || '?'}`;
+        const companyName = await CompanyService.getCompanyName(g.companyId, g.internalCompanyId || '?');
+        
+        companyStats[key] = {
+            companyId: g.companyId,
+            companyName,
+            internalId: g.internalCompanyId || '?',
+            userCount: g._count.id,
+            checkInTotal: 0,
+            auditTotal: 0,
+            scheduleTotal: 0
+        };
+    }
+
+    // 2. Get Usage Logs
+    const logs = await prisma.usageLog.findMany({
+      include: { user: true }
+    });
 
     for (const log of logs) {
       const u = log.user;
       if (!u.companyId) continue;
       
       const key = `${u.companyId}_${u.internalCompanyId || '?'}`;
+      
+      // If we have logs for a company that somehow has no current users (e.g. all unbound), create entry
       if (!companyStats[key]) {
-        const companyName = await CompanyService.getCompanyName(u.companyId!, u.internalCompanyId || '?');
-
-        companyStats[key] = {
-          companyId: u.companyId,
-          companyName,
-          internalId: u.internalCompanyId || '?',
-          checkInTotal: 0,
-          auditTotal: 0,
-          users: new Set()
-        };
+          const companyName = await CompanyService.getCompanyName(u.companyId, u.internalCompanyId || '?');
+          companyStats[key] = {
+            companyId: u.companyId,
+            companyName,
+            internalId: u.internalCompanyId || '?',
+            userCount: 0,
+            checkInTotal: 0,
+            auditTotal: 0,
+            scheduleTotal: 0
+          };
       }
 
-      companyStats[key].users.add(u.empId);
       if (log.action === 'CHECK_IN') companyStats[key].checkInTotal += log.count;
       if (log.action === 'AUDIT') companyStats[key].auditTotal += log.count;
+      if (log.action === 'SCHEDULE') companyStats[key].scheduleTotal += log.count;
     }
 
-    return Object.values(companyStats).map(s => ({
-      ...s,
-      userCount: (s.users as Set<any>).size,
-      users: undefined
-    }));
+    return Object.values(companyStats);
   }
 
   private static async logUsage(userId: number, action: 'CHECK_IN' | 'AUDIT', count: number, details?: string) {

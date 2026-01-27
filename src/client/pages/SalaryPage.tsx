@@ -111,10 +111,10 @@ export default function SalaryPage({ lineUserId, onBack }: Props) {
   // Render: Verify Step
   if (step === 'VERIFY') {
     return (
-      <div style={{ background: '#fff', minHeight: '100vh' }}>
+      <div style={{ background: 'var(--color-background)', minHeight: '100vh' }}>
         <NavBar onBack={onBack}>薪資查詢</NavBar>
         <div style={{ padding: 20 }}>
-          <div style={{ marginBottom: 20, color: '#666' }}>
+          <div style={{ marginBottom: 20, color: 'var(--color-text-secondary)' }}>
             請輸入您的薪資驗證碼（通常為身分證後四碼或自訂密碼）以繼續。
           </div>
           <Form onFinish={onVerify} footer={<Button block type='submit' color='primary' size='large' loading={loading}>驗證</Button>}>
@@ -129,9 +129,9 @@ export default function SalaryPage({ lineUserId, onBack }: Props) {
 
   // Render: List Step
   return (
-    <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
+    <div style={{ background: 'var(--color-background)', minHeight: '100vh' }}>
       <NavBar onBack={onBack}>薪資查詢</NavBar>
-      <div style={{ background: '#fff' }}>
+      <div style={{ background: 'var(--color-background)' }}>
         <Tabs activeKey={currentYear} onChange={(key) => { setCurrentYear(key); fetchList(key); }}>
           {years.map(y => (
             <Tabs.Tab title={`${y}年`} key={y} />
@@ -147,19 +147,19 @@ export default function SalaryPage({ lineUserId, onBack }: Props) {
         <>
           {/* Summary Card */}
           <div style={{ padding: '12px 12px 0 12px' }}>
-            <div style={{ background: '#fff', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
+            <div style={{ background: 'var(--color-background)', borderRadius: 8, padding: 12, border: '1px solid #eee' }}>
               <div style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 8 }}>{currentYear} 年度總覽</div>
               {loadingSummary ? (
-                <div style={{ color: '#999', fontSize: 12 }}>統計中...</div>
+                <div style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>統計中...</div>
               ) : summary ? (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 14 }}>
                   <div>應稅: <span style={{ fontWeight: 'bold' }}>{summary.tax.toLocaleString()}</span></div>
                   <div>應發: <span style={{ fontWeight: 'bold' }}>{summary.income.toLocaleString()}</span></div>
-                  <div>應扣: <span style={{ color: '#ff4d4f' }}>{summary.deduction.toLocaleString()}</span></div>
-                  <div>實發: <span style={{ color: '#1677ff', fontWeight: 'bold' }}>{summary.real.toLocaleString()}</span></div>
+                  <div>應扣: <span style={{ color: 'var(--adm-color-danger)' }}>{summary.deduction.toLocaleString()}</span></div>
+                  <div>實發: <span style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{summary.real.toLocaleString()}</span></div>
                 </div>
               ) : (
-                <div style={{ color: '#999', fontSize: 12 }}>無統計資料</div>
+                <div style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>無統計資料</div>
               )}
             </div>
           </div>
