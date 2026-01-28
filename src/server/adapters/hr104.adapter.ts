@@ -143,10 +143,10 @@ export class HR104Adapter {
     
     const formVars = {
         WorksheetId: payload.worksheetId,
-        STARTDATE: payload.date,
+        STARTDATE: payload.startTime ? payload.date : "",
         STARTTIME: payload.startTime,
         LEAVE_ID_1: "<=VALUE][NAME=>請選擇",
-        ENDDATE: payload.date,
+        ENDDATE: payload.endTime ? payload.date : "",
         ENDTIME: payload.endTime,
         LEAVE_ID_2: "<=VALUE][NAME=>請選擇",
         LEAVE_REASON: payload.reason || "補打卡",

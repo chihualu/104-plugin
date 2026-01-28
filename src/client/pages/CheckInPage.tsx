@@ -34,14 +34,19 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
        return;
     }
     
+    if (!startTime && !endTime) {
+       Toast.show('請至少填寫上班或下班時間');
+       return;
+    }
+    
     setProgress({ visible: true, title: '補打卡申請中', current: 0, total: dates.length, logs: [] });
 
     try {
       const payload: CheckInPayload = {
         lineUserId,
         dates: dates, // Already strings
-        timeStart: startTime,
-        timeEnd: endTime,
+        timeStart: startTime || undefined,
+        timeEnd: endTime || undefined,
         reason: reason
       };
 
@@ -50,6 +55,11 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Request failed');
+      }
 
       if (!response.body) throw new Error('No ReadableStream');
       const reader = response.body.getReader();
@@ -162,10 +172,16 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
 
         <Card title='2. 填寫時間與事由' style={{ marginBottom: 16 }}>
             <Form layout='horizontal'>
-              <Form.Item label='上班時間'>
+              <Form.Item 
+                label='上班時間'
+                extra={<Button size='mini' onClick={() => setStartTime('')}>清除</Button>}
+              >
                 <Input type='time' value={startTime} onChange={setStartTime} />
               </Form.Item>
-              <Form.Item label='下班時間'>
+              <Form.Item 
+                label='下班時間'
+                extra={<Button size='mini' onClick={() => setEndTime('')}>清除</Button>}
+              >
                 <Input type='time' value={endTime} onChange={setEndTime} />
               </Form.Item>
               <Form.Item label='補卡事由'>

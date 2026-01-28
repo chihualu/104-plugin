@@ -19,8 +19,8 @@ export class HRService {
   static async applyCheckIn(lineUserId: string, payload: any, progressCallback?: (data: any) => void) {
     const creds = await AuthService.getUserCredentials(lineUserId);
     const { dates, timeStart, timeEnd, reason } = payload;
-    const fmtStart = (timeStart || '09:00').replace(':', '');
-    const fmtEnd = (timeEnd || '18:00').replace(':', '');
+    const fmtStart = timeStart ? timeStart.replace(':', '') : '';
+    const fmtEnd = timeEnd ? timeEnd.replace(':', '') : '';
 
     // Get Worksheet ID from CompanyService
     const companyConfig = CompanyService.getConfig(creds.companyId, creds.internalId);
