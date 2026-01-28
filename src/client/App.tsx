@@ -25,6 +25,26 @@ export const App = () => {
   const [empId, setEmpId] = useState<string>('');
   const [debugMsg, setDebugMsg] = useState<string>('Initializing...');
 
+  // Handle Browser Back / Swipe Gestures
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.page) {
+        setState(event.state.page);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = (page: AppState) => {
+    setState(page);
+    window.history.pushState({ page }, '', `#${page.toLowerCase()}`);
+  };
+
+  const back = () => {
+    window.history.back();
+  };
+
   useEffect(() => {
     const initLiff = async () => {
       try {
@@ -68,12 +88,15 @@ export const App = () => {
       if (res.data.success && res.data.data.isBound) {
         setEmpId(res.data.data.empId);
         setState('DASHBOARD');
+        window.history.replaceState({ page: 'DASHBOARD' }, '', '#dashboard');
       } else {
         setState('BINDING');
+        window.history.replaceState({ page: 'BINDING' }, '', '#binding');
       }
     } catch (err: any) {
       console.error(err);
       setState('BINDING'); 
+      window.history.replaceState({ page: 'BINDING' }, '', '#binding');
     }
   };
 
@@ -89,45 +112,48 @@ export const App = () => {
         <DashboardPage 
           empId={empId} 
           lineUserId={lineUserId}
-          onNavigate={(page) => setState(page)} 
+          onNavigate={(page) => navigate(page)} 
         />
       )}
 
       {state === 'CHECK_IN_NOW' && (
-        <CheckInNowPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+        <CheckInNowPage lineUserId={lineUserId} onBack={back} />
       )}
 
       {state === 'CHECK_IN' && (
-        <CheckInPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+        <CheckInPage lineUserId={lineUserId} onBack={back} />
       )}
 
       {state === 'AUDIT' && (
-        <AuditPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+        <AuditPage lineUserId={lineUserId} onBack={back} />
       )}
 
       {state === 'SALARY' && (
-        <SalaryPage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+        <SalaryPage lineUserId={lineUserId} onBack={back} />
       )}
 
       {state === 'TEAM_ATTENDANCE' && (
-        <TeamAttendancePage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+        <TeamAttendancePage lineUserId={lineUserId} onBack={back} />
       )}
 
       {state === 'SCHEDULE' && (
-        <SchedulePage lineUserId={lineUserId} onBack={() => setState('DASHBOARD')} />
+        <SchedulePage lineUserId={lineUserId} onBack={back} />
       )}
 
       {state === 'SETTINGS' && (
         <SettingsPage 
           lineUserId={lineUserId}
           empId={empId} 
-          onBack={() => setState('DASHBOARD')} 
-          onLogout={() => setState('BINDING')}
+          onBack={back} 
+          onLogout={() => {
+            setState('BINDING');
+            window.history.replaceState({ page: 'BINDING' }, '', '#binding');
+          }}
         />
       )}
 
       {state === 'USAGES' && (
-        <AdminPage onBack={() => setState('DASHBOARD')} />
+        <AdminPage onBack={back} />
       )}
     </Suspense>
   );
