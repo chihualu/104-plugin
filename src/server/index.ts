@@ -8,6 +8,8 @@ import { errorHandler } from './middleware/error.middleware';
 import { requestLogger } from './middleware/logger.middleware';
 import { logger } from './utils/logger';
 import { SchedulerService } from './services/scheduler.service';
+import { LineBotService } from './services/lineBot.service';
+import { WebhookController } from './controllers/webhook.controller';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -28,6 +30,14 @@ app.use(helmet({
     },
   },
 }));
+
+// Webhook Route (Must be before global body-parser)
+app.post('/callback', 
+  express.json({ 
+    verify: (req: any, res, buf) => { req.rawBody = buf.toString(); } 
+  }), 
+  WebhookController.handleWebhook
+);
 
 // Middleware
 app.use(cors());
@@ -51,6 +61,7 @@ app.use(errorHandler);
 
 // Initialize Scheduler
 SchedulerService.init();
+LineBotService.setToken(process.env.LINE_CHANNEL_ACCESS_TOKEN);
 
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Server running on http://0.0.0.0:${PORT}`);

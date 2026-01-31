@@ -38,6 +38,7 @@ router.get('/salary/detail', HRController.getSalaryDetail);
 router.get('/salary/summary', HRController.getSalarySummary);
 
 router.get('/team/attendance', HRController.getTeamAttendance);
+router.get('/personal/attendance', HRController.getPersonalAttendance);
 
 router.get('/leave/status', HRController.getLeaveStatus);
 
@@ -47,6 +48,7 @@ router.post('/audit/approve', HRController.approveWorkflows);
 router.get('/schedule/list', HRController.getScheduleList);
 router.post('/schedule/create', HRController.createSchedules);
 router.post('/schedule/cancel', HRController.cancelSchedule);
+router.post('/schedule/cancel-all', HRController.cancelAllSchedules);
 
 router.get('/usages/stats', HRController.getUsagesStats);
 

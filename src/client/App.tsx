@@ -87,8 +87,18 @@ export const App = () => {
       const res = await axios.get<ApiResponse>(`/api/check-binding?lineUserId=${uid}`);
       if (res.data.success && res.data.data.isBound) {
         setEmpId(res.data.data.empId);
-        setState('DASHBOARD');
-        window.history.replaceState({ page: 'DASHBOARD' }, '', '#dashboard');
+        
+        // Deep Linking Logic: Check if URL has a hash matching a page state
+        const initialHash = window.location.hash.substring(1).toUpperCase();
+        const validStates: AppState[] = ['CHECK_IN', 'CHECK_IN_NOW', 'AUDIT', 'SETTINGS', 'SALARY', 'TEAM_ATTENDANCE', 'SCHEDULE'];
+        
+        if (validStates.includes(initialHash as any)) {
+            setState(initialHash as AppState);
+            window.history.replaceState({ page: initialHash }, '', `#${initialHash.toLowerCase()}`);
+        } else {
+            setState('DASHBOARD');
+            window.history.replaceState({ page: 'DASHBOARD' }, '', '#dashboard');
+        }
       } else {
         setState('BINDING');
         window.history.replaceState({ page: 'BINDING' }, '', '#binding');
