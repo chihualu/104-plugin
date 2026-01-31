@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Button, Form, Input, Toast, Selector } from 'antd-mobile';
+import { useState, useEffect } from 'react';
+import { Button, Form, Input, Toast, Selector, Dialog, Card, AutoCenter } from 'antd-mobile';
+import { UserAddOutline } from 'antd-mobile-icons';
+import liff from '@line/liff';
 import axios from 'axios';
 import { ApiResponse } from '../../shared/types';
 
@@ -11,6 +13,28 @@ interface Props {
 export default function BindingPage({ lineUserId, onSuccess }: Props) {
   const [companies, setCompanies] = useState<any[]>([]);
   const [fetchingCompanies, setFetchingCompanies] = useState(false);
+  const [isFriend, setIsFriend] = useState(true); // Default true to hide initial flash
+
+  useEffect(() => {
+    const checkFriendship = async () => {
+        if (liff.isInClient()) {
+            try {
+                const friendship = await liff.getFriendship();
+                setIsFriend(friendship.friendFlag);
+            } catch (e) { console.error(e); }
+        }
+    };
+    checkFriendship();
+  }, []);
+
+  const handleAddFriend = () => {
+      const botId = import.meta.env.VITE_LINE_BOT_ID;
+      if (botId) {
+          window.location.href = `https://line.me/R/ti/p/${botId}`;
+      } else {
+          Toast.show('未設定 Bot ID');
+      }
+  };
 
   const fetchCompanies = async (groupUBINo: string) => {
     if (!groupUBINo) return;
@@ -29,6 +53,29 @@ export default function BindingPage({ lineUserId, onSuccess }: Props) {
   };
 
   const onBind = async (values: any) => {
+    // Check Friendship
+    try {
+      if (liff.isInClient()) {
+        const friendship = await liff.getFriendship();
+        if (!friendship.friendFlag) {
+          const result = await Dialog.confirm({
+            title: '通知設定',
+            content: '為了能收到每月出勤異常通知，請先加入官方帳號為好友。',
+            confirmText: '去加入',
+            cancelText: '略過 (無法收通知)',
+          });
+          
+          if (result) {
+             const botId = import.meta.env.VITE_LINE_BOT_ID;
+             if (botId) {
+                 window.location.href = `https://line.me/R/ti/p/${botId}`;
+                 return; // Stop flow to let user add friend
+             }
+          }
+        }
+      }
+    } catch (e) { console.error('Friendship check failed', e); }
+
     try {
       Toast.show({ icon: 'loading', content: '驗證中...' });
       const payload = {
@@ -52,7 +99,22 @@ export default function BindingPage({ lineUserId, onSuccess }: Props) {
   return (
     <div style={{ padding: 20 }}>
       <h1>104 eHR 綁定</h1>
-      <p>請輸入統編後點擊查詢，並選擇公司。</p>
+      <p style={{ marginBottom: 16 }}>請輸入統編後點擊查詢，並選擇公司。</p>
+      
+      {!isFriend && (
+        <Card style={{ marginBottom: 20, border: '1px solid #faad14', background: '#fffbe6', borderRadius: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                    <div style={{ fontWeight: 'bold', color: '#d48806' }}>開啟通知功能</div>
+                    <div style={{ fontSize: 12, color: '#888' }}>加入好友以接收出勤異常提醒</div>
+                </div>
+                <Button color='warning' size='small' onClick={handleAddFriend} style={{ fontSize: 13 }}>
+                    <UserAddOutline /> 加入好友
+                </Button>
+            </div>
+        </Card>
+      )}
+
       <Form 
         onFinish={onBind} 
         initialValues={{ groupUBINo: '' }}

@@ -101,7 +101,7 @@ export default function DashboardPage({ empId, lineUserId, onNavigate }: Props) 
       </Grid>
 
       <div style={{ marginTop: 40, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 12 }}>
-        v1.2.0 @ 104 eHR Optimization
+        v1.3.0 @ 104 eHR Optimization
       </div>
     </div>
   );

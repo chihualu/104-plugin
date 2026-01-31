@@ -241,6 +241,43 @@ export class HRService {
     return result;
   }
 
+  static async getPersonalAttendance(lineUserId: string, year: string, month: string) {
+    const creds = await AuthService.getUserCredentials(lineUserId);
+    const rows = await HR104Adapter.getEmployeeCalendarList(creds, year, month);
+    
+    return rows.map((r: any) => ({
+        date: r.QUERY_DATE,
+        dayType: r.CALENDAR_NAME, // 工作日, 休息日...
+        isWorkDay: r.IS_WORKDAY === '1',
+        punchText: r.CARD_DATA_DATE, // 上班08:45 / 下班17:45
+        holidayName: r.HOLIDAY_NAME,
+        exceptionName: r.CARD_DATA_NAME // 異常資訊，如：忘記刷卡
+    }));
+  }
+
+  static async checkMonthlyAttendance(lineUserId: string, year: string, month: string) {
+    const data = await this.getPersonalAttendance(lineUserId, year, month);
+    const today = new Date().toISOString().split('T')[0];
+    
+    const abnormalities = data.filter(d => {
+        if (d.date > today) return false; // Skip future
+        
+        // 1. Explicit Exception
+        if (d.exceptionName) return true;
+
+        // 2. Missing Punch on Workday
+        if (d.isWorkDay) {
+            // Check if punchText indicates missing data (e.g. "上班--", "下班--")
+            // Or if it's completely empty? Usually 104 returns "上班-- / 下班--" for missing
+            if (!d.punchText || d.punchText.includes('--')) return true;
+        }
+        
+        return false;
+    });
+
+    return abnormalities;
+  }
+
   static async getLeaveStatus(lineUserId: string) {
     const creds = await AuthService.getUserCredentials(lineUserId);
     const rawHtml = await HR104Adapter.getLeaveStatus(creds);
