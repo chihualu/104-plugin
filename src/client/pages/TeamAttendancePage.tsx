@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
-import { NavBar, Button, List, Picker, Tag, AutoCenter, Toast, Tabs } from 'antd-mobile';
-import { LoopOutline, CalendarOutline, CheckCircleOutline } from 'antd-mobile-icons';
+import { NavBar, Button, List, Picker, Tag, AutoCenter, Toast, Tabs, Card, Grid } from 'antd-mobile';
+import { LoopOutline, CalendarOutline, CheckCircleOutline, SendOutline } from 'antd-mobile-icons';
 import axios from 'axios';
+import liff from '@line/liff';
 import FullScreenLoading from '../components/FullScreenLoading';
 
 interface Props {
@@ -65,6 +66,91 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
     }
   };
 
+  const onShare = async () => {
+    if (data.punches.length === 0) return Toast.show('目前沒有打卡異常資料可分享');
+
+    // 統計每個人異常幾筆
+    const summary: Record<string, number> = {};
+    data.punches.forEach(p => {
+        summary[p.empName] = (summary[p.empName] || 0) + 1;
+    });
+
+    const items = Object.entries(summary).slice(0, 10).map(([name, count]) => ({
+        type: 'box',
+        layout: 'horizontal',
+        contents: [
+            { type: 'text', text: name, size: 'sm', color: '#555555', flex: 0 },
+            { type: 'text', text: `${count} 筆`, size: 'sm', color: '#111111', align: 'end', weight: 'bold' }
+        ]
+    }));
+
+    const liffId = import.meta.env.VITE_LIFF_ID;
+    const shareUrl = `https://liff.line.me/${liffId}#check_in`;
+
+    const flexContent: any = {
+        type: 'bubble',
+        header: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+                { type: 'text', text: '📅 團隊出勤異常提醒', weight: 'bold', color: '#ffffff', size: 'lg' },
+                { type: 'text', text: `${selectedValue[0]}年${selectedValue[1]}月 統計`, size: 'xs', color: '#ffffffcc' }
+            ],
+            backgroundColor: '#8D6E63'
+        },
+        body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+                { type: 'text', text: '以下同仁尚有待處理之打卡紀錄，請儘速補辦：', size: 'xs', color: '#888888', margin: 'md', wrap: true },
+                { type: 'separator', margin: 'md' },
+                {
+                    type: 'box',
+                    layout: 'vertical',
+                    margin: 'md',
+                    spacing: 'sm',
+                    contents: items.length > 0 ? items : [{ type: 'text', text: '暫無異常' }]
+                },
+                { type: 'text', text: Object.keys(summary).length > 10 ? '...(僅顯示前10筆)' : ' ', size: 'xxs', color: '#aaaaaa', margin: 'xs', align: 'center' }
+            ]
+        },
+        footer: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+                {
+                    type: 'button',
+                    action: {
+                        type: 'uri',
+                        label: '立即前往 104 補打卡',
+                        uri: shareUrl
+                    },
+                    style: 'primary',
+                    color: '#6F4E37'
+                }
+            ]
+        }
+    };
+
+    console.log('Flex Content:', JSON.stringify(flexContent));
+
+    try {
+        if (!liff.isApiAvailable('shareTargetPicker')) {
+            return Toast.show('您的 LINE 版本不支援分享功能');
+        }
+        const res = await liff.shareTargetPicker([
+            {
+                type: 'flex',
+                altText: '【出勤提醒】團隊異常統計',
+                contents: flexContent
+            }
+        ]);
+        if (res) Toast.show('分享成功');
+    } catch (e) {
+        Toast.show('分享失敗或已取消');
+    }
+  };
+
   const renderList = (records: AttendanceRecord[], emptyMsg: string, isPunch: boolean) => {
     if (records.length === 0) {
       return <AutoCenter style={{ marginTop: 40, color: 'var(--color-text-tertiary)' }}>{emptyMsg}</AutoCenter>;
@@ -122,6 +208,22 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
       </div>
 
       <FullScreenLoading visible={loading} text='查詢中，請稍候...' />
+
+      {!loading && (data.leaves.length > 0 || data.punches.length > 0) && (
+          <div style={{ padding: '0 12px', marginTop: 8 }}>
+              <Card style={{ borderRadius: 12, background: 'rgba(111, 78, 55, 0.05)', border: '1px dashed #8D6E63' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                          <div style={{ fontSize: 14, fontWeight: 'bold', color: '#6F4E37' }}>本月異常統計</div>
+                          <div style={{ fontSize: 12, color: '#8D6E63' }}>共 {data.punches.length} 筆待補打卡</div>
+                      </div>
+                      <Button color='primary' size='small' shape='rounded' onClick={onShare} style={{ fontSize: 13 }}>
+                          <SendOutline /> 分享給團隊
+                      </Button>
+                  </div>
+              </Card>
+          </div>
+      )}
 
       {!loading && (
         <div style={{ marginTop: 10, background: 'var(--color-background)' }}>

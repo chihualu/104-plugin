@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button, Form, Input, Toast, Calendar, Card, NavBar, Modal, ProgressBar } from 'antd-mobile';
 import { CheckInPayload, ApiResponse } from '../../shared/types';
 import dayjs from 'dayjs';
@@ -14,8 +14,26 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
   const [startTime, setStartTime] = useState('08:45');
   const [endTime, setEndTime] = useState('17:45');
   const [reason, setReason] = useState('忘記打卡');
+  const [attendanceData, setAttendanceData] = useState<any[]>([]);
   
   const [progress, setProgress] = useState({ visible: false, title: '', current: 0, total: 0, logs: [] as string[] });
+
+  useEffect(() => {
+    fetchAttendance(dayjs());
+  }, []);
+
+  const fetchAttendance = async (date: dayjs.Dayjs) => {
+    try {
+      const res = await fetch(`/api/personal/attendance?lineUserId=${lineUserId}&year=${date.year()}&month=${date.month() + 1}`);
+      const data = await res.json();
+      if (data.success) {
+        setAttendanceData(prev => {
+            // Merge or replace? Replace for now as we only show current view usually
+            return data.data;
+        });
+      }
+    } catch (e) { console.error('Fetch attendance failed', e); }
+  };
 
   const toggleDate = (date: Date | null) => {
     if (!date) return;
@@ -145,18 +163,32 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
                 <Calendar
                   selectionMode='single'
                   value={null}
-                  onChange={toggleDate} 
+                  onChange={toggleDate}
+                  onPageChange={(year, month) => {
+                    fetchAttendance(dayjs(`${year}-${month}-01`));
+                  }}
                   renderDate={(date) => {
                     const dStr = dayjs(date).format('YYYY-MM-DD');
                     const isSelected = dates.includes(dStr);
+                    const att = attendanceData.find(a => a.date === dStr);
+                    const isNonWorkDay = att && !att.isWorkDay;
+                    const isException = att && att.exceptionName; // CARD_DATA_NAME 有值
+
+                    let textColor = 'inherit';
+                    if (isSelected) textColor = '#fff';
+                    else if (isException) textColor = '#FA8C16'; // Orange for Exception (Warning)
+                    else if (isNonWorkDay) textColor = '#FF4D4F'; // Red for Holiday
+
                     return (
                       <div
                         style={{
                           background: isSelected ? 'var(--adm-color-primary)' : 'transparent',
-                          color: isSelected ? '#fff' : 'inherit',
+                          color: textColor,
                           borderRadius: '50%',
                           display: 'flex', justifyContent: 'center', alignItems: 'center',
-                          width: '32px', height: '32px', margin: '0 auto'
+                          width: '32px', height: '32px', margin: '0 auto',
+                          fontWeight: (isNonWorkDay || isException) ? 'bold' : 'normal',
+                          border: isException && !isSelected ? '1px solid #FA8C16' : 'none' // Add border for exception to make it pop
                         }}
                       >
                         {date.getDate()}

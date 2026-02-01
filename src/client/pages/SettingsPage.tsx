@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, NavBar, List, AutoCenter, Tag, Grid } from 'antd-mobile';
-import { LoopOutline, CheckCircleOutline, UserOutline } from 'antd-mobile-icons';
+import { Button, Card, NavBar, List, AutoCenter, Tag, Grid, Toast } from 'antd-mobile';
+import { LoopOutline, CheckCircleOutline, UserOutline, UserAddOutline } from 'antd-mobile-icons';
 import axios from 'axios';
+import liff from '@line/liff';
 
 import DOMPurify from 'dompurify';
 
@@ -16,6 +17,19 @@ export default function SettingsPage({ lineUserId, onBack, onLogout }: Props) {
   const [info, setInfo] = useState<any>(null);
   const [leaveData, setLeaveData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFriend, setIsFriend] = useState(true);
+
+  useEffect(() => {
+    const checkFriendship = async () => {
+        if (liff.isInClient()) {
+            try {
+                const friendship = await liff.getFriendship();
+                setIsFriend(friendship.friendFlag);
+            } catch (e) { console.error(e); }
+        }
+    };
+    checkFriendship();
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -117,6 +131,30 @@ export default function SettingsPage({ lineUserId, onBack, onLogout }: Props) {
                   </div>
                 )}
       
+                <Card style={{ marginTop: 16, borderRadius: 12, border: '1px solid rgba(0,0,0,0.12)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                            <div style={{ fontWeight: 'bold', fontSize: 16 }}>官方帳號好友</div>
+                            <div style={{ fontSize: 12, color: isFriend ? 'var(--adm-color-success)' : 'var(--color-text-secondary)', marginTop: 4 }}>
+                                {isFriend ? '已加入 (可接收通知)' : '未加入 (無法接收通知)'}
+                            </div>
+                        </div>
+                        {!isFriend && (
+                            <Button 
+                                size='small' 
+                                color='primary' 
+                                onClick={() => {
+                                    const botId = import.meta.env.VITE_LINE_BOT_ID;
+                                    if(botId) window.location.href = `https://line.me/R/ti/p/${botId}`;
+                                    else Toast.show('未設定 Bot ID');
+                                }}
+                            >
+                                <UserAddOutline /> 加入
+                            </Button>
+                        )}
+                    </div>
+                </Card>
+
                 <Button 
                   block 
                   fill='outline' 

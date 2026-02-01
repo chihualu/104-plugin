@@ -78,6 +78,32 @@ export class HR104Adapter {
     try { return JSON.parse(rawJson).Tables[0].Rows || []; } catch (e) { return []; }
   }
 
+  static async getEmployeeCalendarList(auth: AuthParams, year: string, month: string) {
+    const params = new URLSearchParams();
+    params.append('key', auth.token);
+    params.append('groupUBINo', auth.companyId);
+    params.append('companyID', auth.internalId);
+    params.append('account', auth.empId);
+    params.append('QUERY_YEAR', year);
+    params.append('QUERY_MONTH', month);
+    params.append('LANG', 'zh-tw');
+
+    try {
+        const response = await axios.post(`${BASE_URL}/GetEmployeeCalendarList`, params.toString(), this.getAxiosConfig(auth.cookies));
+        const jsonObj = parser.parse(response.data);
+        if (jsonObj.FunctionExecResult?.IsSuccess === false) {
+            logger.error({ msg: 'GetEmployeeCalendarList API error', error: jsonObj.FunctionExecResult.ReturnMessage });
+            return [];
+        }
+        const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
+        if (!rawJson) return [];
+        return JSON.parse(rawJson).Tables[0].Rows || [];
+    } catch (e: any) {
+        logger.error({ msg: 'GetEmployeeCalendarList request failed', error: e.message });
+        return [];
+    }
+  }
+
   static async getSubordinateCalendarList(auth: AuthParams, year: string, month: string) {
     const params = new URLSearchParams();
     params.append('key', auth.token);

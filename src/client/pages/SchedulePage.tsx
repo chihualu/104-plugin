@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { NavBar, Tabs, Calendar, List, Button, Switch, Input, Toast, Tag, Modal, AutoCenter, InfiniteScroll } from 'antd-mobile';
-import { AddOutline, UnorderedListOutline, ClockCircleOutline } from 'antd-mobile-icons';
+import { NavBar, Tabs, Calendar, List, Button, Switch, Input, Toast, Tag, Modal, AutoCenter, InfiniteScroll, Card, Dialog } from 'antd-mobile';
+import { AddOutline, UnorderedListOutline, ClockCircleOutline, CloseOutline, DeleteOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 import LocationPicker from '../components/LocationPicker';
 import dayjs from 'dayjs';
@@ -14,6 +14,9 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
   const [activeTab, setActiveTab] = useState('add');
   
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
+  const [pendingHasMore, setPendingHasMore] = useState(true);
+  const [pendingCursor, setPendingCursor] = useState<number | undefined>(undefined);
+
   const [historyTasks, setHistoryTasks] = useState<any[]>([]);
   const [defaultLoc, setDefaultLoc] = useState<any>(null);
   
@@ -34,10 +37,15 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
   
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [attendanceData, setAttendanceData] = useState<any[]>([]);
 
   useEffect(() => {
     if (activeTab === 'pending') {
-        fetchPending();
+        // Reset pending list to fetch fresh data
+        setPendingTasks([]);
+        setPendingCursor(undefined);
+        setPendingHasMore(true);
     } else if (activeTab === 'history') {
         // Reset history list to fetch fresh data
         setHistoryTasks([]);
@@ -48,20 +56,38 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
   }, [activeTab]);
 
   useEffect(() => {
-    fetchPending(); // Initial fetch for default location
+    loadMorePending(); // Initial fetch to get default location
+    fetchAttendance(dayjs());
   }, []);
 
-  const fetchPending = async () => {
+  const fetchAttendance = async (date: dayjs.Dayjs) => {
     try {
-      const res = await axios.get(`/api/schedule/list?lineUserId=${lineUserId}&status=PENDING`);
+      const res = await axios.get(`/api/personal/attendance?lineUserId=${lineUserId}&year=${date.year()}&month=${date.month() + 1}`);
       if (res.data.success) {
-        setPendingTasks(res.data.data.tasks);
-        if (!location && res.data.data.defaultLocation) {
+        setAttendanceData(res.data.data);
+      }
+    } catch (e) { console.error('Fetch attendance failed', e); }
+  };
+
+  const loadMorePending = async () => {
+    try {
+      const url = `/api/schedule/list?lineUserId=${lineUserId}&status=PENDING&limit=15${pendingCursor ? `&cursor=${pendingCursor}` : ''}`;
+      const res = await axios.get(url);
+      if (res.data.success) {
+        const newTasks = res.data.data.tasks;
+        setPendingTasks(prev => [...prev, ...newTasks]);
+        setPendingCursor(res.data.data.nextCursor);
+        setPendingHasMore(newTasks.length > 0 && !!res.data.data.nextCursor);
+
+        // Initial default location check (only on first load if not set)
+        if (!location && res.data.data.defaultLocation && pendingTasks.length === 0) {
             setDefaultLoc(res.data.data.defaultLocation);
             setLocation(res.data.data.defaultLocation);
         }
+      } else {
+        setPendingHasMore(false);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); setPendingHasMore(false); }
   };
 
   const loadMoreHistory = async () => {
@@ -131,7 +157,7 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
             Toast.show({ icon: 'success', content: '預約成功' });
             setSelectedDates([]); // Clear selection
             setActiveTab('pending');
-            fetchPending();
+            // setActiveTab triggers useEffect which resets pending list, InfiniteScroll will then load.
         }
     } catch (err: any) {
         Toast.show({ icon: 'fail', content: err.response?.data?.message || '預約失敗' });
@@ -144,28 +170,26 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
       try {
           await axios.post('/api/schedule/cancel', { lineUserId, taskId });
           Toast.show('已取消');
-          fetchPending();
+          setPendingTasks(prev => prev.filter(t => t.id !== taskId));
       } catch (e) { Toast.show('取消失敗'); }
   };
 
-  const showHistoryDetail = (task: any) => {
-      Modal.show({
-          title: '預約詳情',
-          content: (
-              <div style={{ height: '100%', overflowY: 'auto', fontSize: 14 }}>
-                  <p><strong style={{ fontWeight: 'bold' }}>時間：</strong> {dayjs(task.scheduledAt).format('YYYY-MM-DD HH:mm:ss')}</p>
-                  <p><strong style={{ fontWeight: 'bold' }}>狀態：</strong> {renderStatus(task.status)}</p>
-                  <p><strong style={{ fontWeight: 'bold' }}>座標：</strong> {task.lat}, {task.lng}</p>
-                  <p><strong style={{ fontWeight: 'bold' }}>執行結果：</strong></p>
-                  <div style={{ background: 'var(--color-background)', padding: 8, borderRadius: 4, color: task.status === 'FAILED' ? 'var(--adm-color-danger)' : 'var(--color-text)' }}>
-                      {task.result || '無訊息'}
-                  </div>
-              </div>
-          ),
-          closeOnMaskClick: true,
-          showCloseButton: true,
-          className: 'full-screen-modal'
+  const handleCancelAll = async () => {
+      const result = await Dialog.confirm({
+          content: '確定要取消所有待執行的預約任務嗎？',
       });
+      if (result) {
+          try {
+              await axios.post('/api/schedule/cancel-all', { lineUserId });
+              Toast.show({ icon: 'success', content: '已全部取消' });
+              setPendingTasks([]);
+              setPendingHasMore(false);
+          } catch (e) { Toast.show('取消失敗'); }
+      }
+  };
+
+  const showHistoryDetail = (task: any) => {
+      setSelectedTask(task);
   };
 
   const renderStatus = (status: string) => {
@@ -197,17 +221,31 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
                         selectionMode='single'
                         value={null}
                         onChange={toggleDate}
+                        onPageChange={(year, month) => {
+                            fetchAttendance(dayjs(`${year}-${month}-01`));
+                        }}
                         renderDate={date => {
                             const d = dayjs(date).format('YYYY-MM-DD');
                             const isSelected = selectedDates.includes(d);
+                            const att = attendanceData.find(a => a.date === d);
+                            const isNonWorkDay = att && !att.isWorkDay;
+                            const isException = att && att.exceptionName;
+
+                            let textColor = 'inherit';
+                            if (isSelected) textColor = '#fff';
+                            else if (isException) textColor = '#FA8C16'; // Orange for Exception
+                            else if (isNonWorkDay) textColor = '#FF4D4F'; // Red for Holiday
+
                             return (
                                 <div style={{ 
                                     borderRadius: '50%', 
                                     background: isSelected ? 'var(--adm-color-primary)' : 'transparent',
-                                    color: isSelected ? '#fff' : 'inherit',
-                                    width: '32px', height: '32px', // Increased size
-                                    margin: '0 auto', // Center it
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                    color: textColor,
+                                    width: '32px', height: '32px', 
+                                    margin: '0 auto', 
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontWeight: (isNonWorkDay || isException) ? 'bold' : 'normal',
+                                    border: isException && !isSelected ? '1px solid #FA8C16' : 'none'
                                 }}>
                                     {date.getDate()}
                                 </div>
@@ -267,11 +305,17 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
         </Tabs.Tab>
 
         <Tabs.Tab title='待執行' key='pending' icon={<ClockCircleOutline />}>
+            {pendingTasks.length > 0 && (
+                 <div style={{ padding: '12px 16px', background: 'var(--color-background)' }}>
+                    <Button block color='danger' shape='rounded' onClick={handleCancelAll} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                        <DeleteOutline /> 一鍵取消所有任務
+                    </Button>
+                 </div>
+            )}
             <List>
                 {pendingTasks.map(task => (
                     <List.Item
                         key={task.id}
-                        prefix={renderStatus(task.status)}
                         extra={
                             <Button size='mini' color='danger' fill='outline' onClick={() => handleCancel(task.id)}>
                                 取消
@@ -280,14 +324,15 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
                     >
                         <div style={{ fontSize: 18 }}>
                             <span style={{ fontWeight: 'bold' }}>{dayjs(task.scheduledAt).format('MM/DD HH:mm:ss')}</span>
-                            <span style={{ fontSize: 16, color: 'var(--color-text-tertiary)', marginLeft: 8 }}>
+                            <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginLeft: 8 }}>
                                 {task.lat.toFixed(4)}, {task.lng.toFixed(4)}
                             </span>
                         </div>
                     </List.Item>
                 ))}
-                {pendingTasks.length === 0 && <AutoCenter style={{ padding: 20, color: 'var(--color-text-tertiary)' }}>無待執行預約</AutoCenter>}
+                {pendingTasks.length === 0 && !pendingHasMore && <AutoCenter style={{ padding: 20, color: 'var(--color-text-tertiary)' }}>無待執行預約</AutoCenter>}
             </List>
+            <InfiniteScroll loadMore={loadMorePending} hasMore={pendingHasMore} />
         </Tabs.Tab>
 
         <Tabs.Tab title='歷史紀錄' key='history' icon={<UnorderedListOutline />}>
@@ -301,7 +346,7 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
                     >
                         <div style={{ fontSize: 18 }}>
                             <span style={{ fontWeight: 'bold' }}>{dayjs(task.scheduledAt).format('MM/DD HH:mm:ss')}</span>
-                            <span style={{ fontSize: 16, color: 'var(--color-text-tertiary)', marginLeft: 8 }}>
+                            <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginLeft: 8 }}>
                                 {task.lat.toFixed(4)}, {task.lng.toFixed(4)}
                             </span>
                         </div>
@@ -311,7 +356,70 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
             <InfiniteScroll loadMore={loadMoreHistory} hasMore={historyHasMore} />
         </Tabs.Tab>
       </Tabs>
+
+      {/* Custom Full Screen Detail Overlay */}
+      {selectedTask && (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 1000,
+            background: 'var(--color-background)',
+            display: 'flex',
+            flexDirection: 'column'
+        }}>
+            <div style={{ 
+                padding: '16px', 
+                background: 'var(--adm-card-background)', 
+                borderBottom: '1px solid rgba(0,0,0,0.05)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+            }}>
+                <div style={{ fontSize: 18, fontWeight: 'bold' }}>預約詳情</div>
+                <div onClick={() => setSelectedTask(null)} style={{ padding: 4 }}>
+                    <CloseOutline fontSize={24} />
+                </div>
+            </div>
+            
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+                <Card style={{ borderRadius: 12 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div>
+                            <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 4 }}>預約時間</div>
+                            <div style={{ fontSize: 18, fontWeight: 'bold' }}>{dayjs(selectedTask.scheduledAt).format('YYYY-MM-DD HH:mm:ss')}</div>
+                        </div>
+                        
+                        <div>
+                            <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 4 }}>狀態</div>
+                            <div style={{ display: 'flex' }}>{renderStatus(selectedTask.status)}</div>
+                        </div>
+
+                        <div>
+                            <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 4 }}>GPS 座標</div>
+                            <div style={{ fontSize: 16 }}>{selectedTask.lat}, {selectedTask.lng}</div>
+                        </div>
+
+                        <div>
+                            <div style={{ fontSize: 14, color: 'var(--color-text-secondary)', marginBottom: 4 }}>執行結果</div>
+                            <div style={{ 
+                                background: 'rgba(0,0,0,0.04)', 
+                                padding: 12, 
+                                borderRadius: 8,
+                                color: selectedTask.status === 'FAILED' ? 'var(--adm-color-danger)' : 'var(--color-text)',
+                                lineHeight: 1.5
+                            }}>
+                                {selectedTask.result || '無訊息'}
+                            </div>
+                        </div>
+                    </div>
+                </Card>
+            </div>
+        </div>
+      )}
     </div>
   );
-
 }

@@ -118,20 +118,22 @@ export default function LocationPicker({ value, defaultValue, onChange }: Props)
         <Button size='mini' fill='outline' onClick={handleCurrentLocation}>目前位置</Button>
       </Space>
 
-      <Form.Item label='經度 (Lng)'>
-        <Input 
-            type='number' 
-            value={pos.lng.toString()} 
-            onChange={v => handleInputChange('lng', v)} 
-        />
-      </Form.Item>
-      <Form.Item label='緯度 (Lat)'>
-        <Input 
-            type='number' 
-            value={pos.lat.toString()} 
-            onChange={v => handleInputChange('lat', v)} 
-        />
-      </Form.Item>
+      <div style={{ display: 'flex', gap: 10 }}>
+          <Form.Item label='緯度 (Lat)' style={{ flex: 1 }}>
+            <Input 
+                type='number' 
+                value={pos.lat.toString()} 
+                onChange={v => handleInputChange('lat', v)} 
+            />
+          </Form.Item>
+          <Form.Item label='經度 (Lng)' style={{ flex: 1 }}>
+            <Input 
+                type='number' 
+                value={pos.lng.toString()} 
+                onChange={v => handleInputChange('lng', v)} 
+            />
+          </Form.Item>
+      </div>
     </div>
   );
 }

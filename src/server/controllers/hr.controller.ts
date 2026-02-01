@@ -102,6 +102,19 @@ export class HRController {
     } catch (e) { next(e); }
   }
 
+  static async getPersonalAttendance(req: Request, res: Response, next: NextFunction) {
+    try {
+        const lineUserId = LineUserIdSchema.parse(req.query.lineUserId);
+        const year = YearSchema.parse(req.query.year);
+        const month = MonthSchema.parse(req.query.month);
+
+        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
+
+        const data = await HRService.getPersonalAttendance(lineUserId, year, month);
+        res.json({ success: true, data });
+    } catch (e) { next(e); }
+  }
+
   static async getLeaveStatus(req: Request, res: Response, next: NextFunction) {
     try {
         const lineUserId = LineUserIdSchema.parse(req.query.lineUserId);
@@ -164,7 +177,7 @@ export class HRController {
         const where: any = { userId: user.id };
         if (status) {
             if (status.includes('HISTORY')) {
-                where.status = { not: 'PENDING' };
+                where.status = { in: ['COMPLETED', 'FAILED', 'EXPIRED'] };
             } else {
                 where.status = { in: status };
             }
@@ -302,6 +315,23 @@ export class HRController {
 
         await prisma.scheduledTask.update({
             where: { id: taskId, userId: user.id },
+            data: { status: 'CANCELLED' }
+        });
+
+        res.json({ success: true });
+    } catch (e) { next(e); }
+  }
+
+  static async cancelAllSchedules(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { lineUserId } = req.body;
+        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+        const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
+        if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
+
+        await prisma.scheduledTask.updateMany({
+            where: { userId: user.id, status: 'PENDING' },
             data: { status: 'CANCELLED' }
         });
 
