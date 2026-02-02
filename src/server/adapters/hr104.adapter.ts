@@ -5,6 +5,35 @@ import { logger } from '../utils/logger';
 const BASE_URL = 'https://pro104.provision.com.tw:8443/wfmobileweb/Service/eHRFlowMobileService.asmx';
 const parser = new XMLParser();
 
+// Global Axios Request Logger
+axios.interceptors.request.use(request => {
+    logger.debug({
+        msg: '>>> 104 API Request Sending',
+        url: request.url,
+        method: request.method,
+        // Clone headers to avoid modifying original or circular structure issues in logger
+        headers: JSON.stringify(request.headers),
+        payload: typeof request.data === 'string' ? request.data : JSON.stringify(request.data)
+    });
+    return request;
+});
+
+// Global Axios Error Logger
+axios.interceptors.response.use(
+    response => response,
+    error => {
+        if (error.response) {
+            logger.error({ 
+                msg: '104 API Error Response', 
+                status: error.response.status, 
+                data: error.response.data,
+                url: error.config.url
+            });
+        }
+        return Promise.reject(error);
+    }
+);
+
 export interface AuthParams {
   token: string;
   companyId: string;
@@ -18,7 +47,12 @@ export class HR104Adapter {
     const config: any = {
       headers: { 
         'Content-Type': 'application/x-www-form-urlencoded', 
-        'X-Requested-With': 'XMLHttpRequest' 
+        'X-Requested-With': 'XMLHttpRequest',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'Origin': 'https://pro104.provision.com.tw:8443',
+        'Referer': 'https://pro104.provision.com.tw:8443/wfmobileweb/Default.aspx',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7'
       },
       timeout: 15000 // 15s timeout
     };
@@ -29,7 +63,7 @@ export class HR104Adapter {
   }
 
   static async login(groupUBINo: string, companyID: string, empId: string, password: string) {
-    if (groupUBINo === 'TEST') return 'mock_test_token';
+    if (groupUBINo === 'TEST') return { token: 'mock_test_token', cookies: '' };
 
     const params = new URLSearchParams();
     params.append('groupUBINo', groupUBINo);
@@ -43,7 +77,20 @@ export class HR104Adapter {
         const result = jsonObj.FunctionExecResult;
 
         if (result && result.IsSuccess === true) {
-            return result.ReturnObject;
+            // Extract Cookies
+            let cookies = '';
+            if (response.headers['set-cookie']) {
+                // Axios merging set-cookie array into single string or array depending on version/config
+                // We want to join them with '; '
+                const rawCookies = response.headers['set-cookie'];
+                if (Array.isArray(rawCookies)) {
+                    cookies = rawCookies.map(c => c.split(';')[0]).join('; ');
+                } else {
+                    cookies = rawCookies; // Should not happen usually with array set-cookie
+                }
+            }
+            logger.info({ msg: 'Login success', hasCookies: !!cookies });
+            return { token: result.ReturnObject, cookies };
         } else {
             throw new Error(result?.ReturnMessage || 'Login failed');
         }
@@ -96,8 +143,15 @@ export class HR104Adapter {
             return [];
         }
         const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
-        if (!rawJson) return [];
-        return JSON.parse(rawJson).Tables[0].Rows || [];
+        if (!rawJson) {
+            logger.warn({ msg: 'GetEmployeeCalendarList empty ReturnObject', data: jsonObj });
+            return [];
+        }
+
+        const parsedData = JSON.parse(rawJson);
+        logger.debug({ msg: 'GetEmployeeCalendarList raw data', rows: parsedData.Tables[0].Rows });
+        
+        return parsedData.Tables[0].Rows || [];
     } catch (e: any) {
         logger.error({ msg: 'GetEmployeeCalendarList request failed', error: e.message });
         return [];

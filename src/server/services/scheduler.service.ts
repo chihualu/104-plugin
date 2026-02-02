@@ -12,26 +12,15 @@ export class SchedulerService {
   private static isRunning = false;
 
   static init() {
-    // Schedule to run every minute (Task Execution)
-    cron.schedule('* * * * *', async () => {
-      if (this.isRunning) return;
-      this.isRunning = true;
-      
-      try {
-        await this.processTasks();
-      } catch (e) {
-        logger.error({ msg: 'Scheduler error', error: (e as any).message });
-      } finally {
-        this.isRunning = false;
-      }
-    });
+    // Task Execution is now handled by the Go Scheduler Service.
+    // We only keep the Monthly Check here.
 
     // Schedule Monthly Check (Every 25th at 10:00 AM)
     cron.schedule('0 10 25 * *', () => {
         this.runMonthlyCheck();
     });
     
-    logger.info('Scheduler Service initialized');
+    logger.info('Scheduler Service initialized (Monthly Check only)');
   }
 
   private static async runMonthlyCheck() {
