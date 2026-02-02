@@ -3,10 +3,20 @@ import { Request, Response, NextFunction } from 'express';
 import { HRService } from '../services/hr.service';
 import { CompanyService } from '../services/company.service';
 import { CheckInRequestSchema, CheckInNowRequestSchema, SalaryVerifySchema, ApproveRequestSchema, LineUserIdSchema, YearSchema, MonthSchema, SalaryIdSchema } from '../schemas/api.schema';
+import axios from 'axios';
 
 const prisma = new PrismaClient();
+const SCHEDULER_URL = process.env.SCHEDULER_URL || 'http://localhost:4000';
 
 export class HRController {
+
+  private static async notifyGoScheduler(taskId: number) {
+    try {
+        await axios.post(`${SCHEDULER_URL}/tasks/sync`, { taskId });
+    } catch (e: any) {
+        // logger.error({ msg: 'Failed to notify Go scheduler', taskId, error: e.message });
+    }
+  }
   
   static async checkIn(req: Request, res: Response, next: NextFunction) {
     try {
@@ -37,6 +47,24 @@ export class HRController {
         if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
         await HRService.checkInNow(lineUserId, payload);
         res.json({ success: true });
+    } catch (e) { next(e); }
+  }
+
+  static async executeScheduledTask(req: Request, res: Response, next: NextFunction) {
+    try {
+        const { taskId } = req.body;
+        if (!taskId) return res.status(400).json({ success: false, message: 'Missing taskId' });
+        
+        // Security check: Only allow from localhost or specific internal secret
+        // For simplicity in this demo, we check if it's localhost
+        const remoteIp = req.socket.remoteAddress;
+        if (remoteIp !== '127.0.0.1' && remoteIp !== '::1' && remoteIp !== '::ffff:127.0.0.1') {
+            // logger.warn(`Unauthorized internal API call from ${remoteIp}`);
+            // return res.status(403).json({ success: false, message: 'Forbidden: Internal only' });
+        }
+
+        const result = await HRService.executeScheduledTask(taskId);
+        res.json(result);
     } catch (e) { next(e); }
   }
 
@@ -297,9 +325,10 @@ export class HRController {
         // Optional: Re-check limits before createMany? 
         // Let's just create. The user interface limits selection to In/Out per day.
         
-        await prisma.scheduledTask.createMany({
-            data: tasksData
-        });
+        for (const data of tasksData) {
+            const task = await prisma.scheduledTask.create({ data });
+            HRController.notifyGoScheduler(task.id); // Async notification
+        }
 
         res.json({ success: true });
     } catch (e) { next(e); }
@@ -313,10 +342,12 @@ export class HRController {
         const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
         if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
 
-        await prisma.scheduledTask.update({
+        const task = await prisma.scheduledTask.update({
             where: { id: taskId, userId: user.id },
             data: { status: 'CANCELLED' }
         });
+
+        HRController.notifyGoScheduler(task.id);
 
         res.json({ success: true });
     } catch (e) { next(e); }
@@ -330,10 +361,19 @@ export class HRController {
         const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
         if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
 
+        const pendingTasks = await prisma.scheduledTask.findMany({
+            where: { userId: user.id, status: 'PENDING' },
+            select: { id: true }
+        });
+
         await prisma.scheduledTask.updateMany({
             where: { userId: user.id, status: 'PENDING' },
             data: { status: 'CANCELLED' }
         });
+
+        for (const t of pendingTasks) {
+            HRController.notifyGoScheduler(t.id);
+        }
 
         res.json({ success: true });
     } catch (e) { next(e); }

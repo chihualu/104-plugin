@@ -25,6 +25,22 @@ export const App = () => {
   const [empId, setEmpId] = useState<string>('');
   const [debugMsg, setDebugMsg] = useState<string>('Initializing...');
 
+  // Global API Error Handling (403 -> Binding)
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      response => response,
+      error => {
+        if (error.response && error.response.status === 403) {
+          console.warn('403 detected, redirecting to binding page');
+          setState('BINDING');
+          window.history.replaceState({ page: 'BINDING' }, '', '#binding');
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => axios.interceptors.response.eject(interceptor);
+  }, []);
+
   // Handle Browser Back / Swipe Gestures
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -35,6 +51,18 @@ export const App = () => {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Handle Re-entering the app (Foreground)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && lineUserId) {
+        console.log('App back to foreground, re-checking status...');
+        checkBinding(lineUserId);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [lineUserId]);
 
   const navigate = (page: AppState) => {
     setState(page);

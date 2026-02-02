@@ -20,7 +20,11 @@ export class AuthService {
     const { groupUBINo, companyID, empId, password } = payload;
     
     // Verify credentials with 104
-    const token = await HR104Adapter.login(groupUBINo, companyID, empId, password);
+    // Now returns { token, cookies }
+    const loginResult = await HR104Adapter.login(groupUBINo, companyID, empId, password);
+    const token = typeof loginResult === 'string' ? loginResult : loginResult.token;
+    const cookies = typeof loginResult === 'string' ? null : loginResult.cookies;
+
     const { encryptedData, iv } = encrypt(token);
 
     // Save to DB
@@ -32,6 +36,7 @@ export class AuthService {
         empId,
         encryptedToken: encryptedData,
         iv,
+        cookies, // Save session cookies
       },
       create: {
         lineUserId,
@@ -40,6 +45,7 @@ export class AuthService {
         empId,
         encryptedToken: encryptedData,
         iv,
+        cookies,
       },
     });
 

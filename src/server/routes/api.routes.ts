@@ -25,6 +25,9 @@ router.post('/bind', authLimiter, AuthController.bind);
 router.get('/check-binding', AuthController.checkBinding);
 router.get('/companies', AuthController.getCompanies);
 
+// Internal Routes (For Go Scheduler)
+router.post('/internal/execute-task', HRController.executeScheduledTask);
+
 // HR Routes
 router.use(authenticate); // Attempt to parse token
 

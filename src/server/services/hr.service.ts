@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { CompanyService } from './company.service';
 import { HR104Adapter } from '../adapters/hr104.adapter';
 import { logger } from '../utils/logger';
+import { LineBotService } from './lineBot.service';
 
 const prisma = new PrismaClient();
 
@@ -69,6 +70,78 @@ export class HRService {
     await this.logUsage(creds.dbUser.id, 'CHECK_IN', 1, `GPS: ${payload.lat},${payload.lng}`);
   }
 
+  static async executeScheduledTask(taskId: number) {
+    try {
+      // 1. Get Task
+      const task = await prisma.scheduledTask.findUnique({ where: { id: taskId } });
+      if (!task || task.status !== 'PENDING') throw new Error('Task not found or not pending');
+
+      // 2. Get User Credentials
+      const user = await prisma.userBinding.findUnique({ where: { id: task.userId } });
+      if (!user) throw new Error('User not found');
+
+      const creds = await AuthService.getUserCredentials(user.lineUserId);
+
+      // 3. Call 104 API
+      await HR104Adapter.insertCard(creds, {
+        lat: task.lat,
+        lng: task.lng,
+        address: '',
+        memo: ''
+      });
+
+      // 4. Update Status
+      await prisma.scheduledTask.update({
+        where: { id: task.id },
+        data: { status: 'COMPLETED', result: 'Success' }
+      });
+
+      // 5. Log to UsageLog
+      await prisma.usageLog.create({
+          data: {
+            userId: task.userId,
+            action: 'SCHEDULE',
+            count: 1,
+            details: `Executed successfully`
+          }
+      });
+
+      // 6. Notify User via LINE
+      const timeStr = new Date(task.scheduledAt).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      await LineBotService.pushMessage(user.lineUserId, `【預約打卡通知】\n您預約於 ${timeStr} 的自動打卡已執行成功。`);
+
+      logger.info({ msg: `Scheduled task ${task.id} for user ${user.empId} completed successfully` });
+      return { success: true };
+    } catch (e: any) {
+      await prisma.scheduledTask.update({
+        where: { id: taskId },
+        data: { status: 'FAILED', result: e.message }
+      });
+
+      // Handle 403 Forbidden specifically (Token Expired)
+      if (e.response && e.response.status === 403) {
+          const task = await prisma.scheduledTask.findUnique({ where: { id: taskId } });
+          const user = await prisma.userBinding.findUnique({ where: { id: task?.userId } });
+          if (user) {
+              await this.handle403(user.lineUserId);
+              await LineBotService.pushMessage(user.lineUserId, 
+                  `【系統通知】由於您的 104 登入憑證已失效，系統已自動解除您的帳號綁定。請重新進入 App 進行綁定，以確保後續功能正常。`);
+          }
+      }
+
+      throw e;
+    }
+  }
+
+  private static async handle403(lineUserId: string) {
+    logger.warn({ msg: '403 Detected, invalidating user binding', lineUserId });
+    try {
+        await prisma.userBinding.delete({ where: { lineUserId } });
+    } catch (e) {
+        // Might already be deleted
+    }
+  }
+
   static async verifySalaryCode(lineUserId: string, code: string) {
     const creds = await AuthService.getUserCredentials(lineUserId);
     const newCookies = await HR104Adapter.verifySalaryCode(creds, code);
@@ -83,8 +156,15 @@ export class HRService {
   }
 
   static async getSalaryList(lineUserId: string, year: string) {
-    const creds = await AuthService.getUserCredentials(lineUserId);
-    return HR104Adapter.getSalaryList(creds, year);
+    try {
+        const creds = await AuthService.getUserCredentials(lineUserId);
+        return await HR104Adapter.getSalaryList(creds, year);
+    } catch (e: any) {
+        if (e.response && e.response.status === 403) {
+            await this.handle403(lineUserId);
+        }
+        throw e;
+    }
   }
 
   static async getSalaryDetail(lineUserId: string, id: string) {
@@ -242,17 +322,24 @@ export class HRService {
   }
 
   static async getPersonalAttendance(lineUserId: string, year: string, month: string) {
-    const creds = await AuthService.getUserCredentials(lineUserId);
-    const rows = await HR104Adapter.getEmployeeCalendarList(creds, year, month);
-    
-    return rows.map((r: any) => ({
-        date: r.QUERY_DATE,
-        dayType: r.CALENDAR_NAME, // 工作日, 休息日...
-        isWorkDay: r.IS_WORKDAY === '1',
-        punchText: r.CARD_DATA_DATE, // 上班08:45 / 下班17:45
-        holidayName: r.HOLIDAY_NAME,
-        exceptionName: r.CARD_DATA_NAME // 異常資訊，如：忘記刷卡
-    }));
+    try {
+        const creds = await AuthService.getUserCredentials(lineUserId);
+        const rows = await HR104Adapter.getEmployeeCalendarList(creds, year, month);
+        
+        return rows.map((r: any) => ({
+            date: r.QUERY_DATE,
+            dayType: r.CALENDAR_NAME, // 工作日, 休息日...
+            isWorkDay: r.IS_WORKDAY === '1',
+            punchText: r.CARD_DATA_DATE, // 上班08:45 / 下班17:45
+            holidayName: r.HOLIDAY_NAME,
+            exceptionName: r.CARD_DATA_NAME // 異常資訊，如：忘記刷卡
+        }));
+    } catch (e: any) {
+        if (e.response && e.response.status === 403) {
+            await this.handle403(lineUserId);
+        }
+        throw e;
+    }
   }
 
   static async checkMonthlyAttendance(lineUserId: string, year: string, month: string) {
