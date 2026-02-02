@@ -50,7 +50,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
-    "fast-xml-parser": "^5.3.3",
+    "fast-xml-parser": "^5.3.4",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "leaflet": "^1.9.4",
