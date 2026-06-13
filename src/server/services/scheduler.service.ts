@@ -21,8 +21,8 @@ export class SchedulerService {
       // In-process guard: the endpoint could be triggered twice (e.g. Go retry);
       // skip overlapping runs so we don't double-send notifications.
       if (SchedulerService.monthlyCheckRunning) {
-          logger.warn('Monthly check already running; skipping duplicate trigger');
-          return;
+        logger.warn('Monthly check already running; skipping duplicate trigger');
+        return;
       }
       SchedulerService.monthlyCheckRunning = true;
       logger.info('Starting Monthly Attendance Check...');

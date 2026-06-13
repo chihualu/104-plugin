@@ -33,7 +33,8 @@ export const internalAuth = (req: Request, res: Response, next: NextFunction) =>
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) return next();
   const provided = req.headers['x-internal-secret'];
-  const value = Array.isArray(provided) ? provided[0] : provided;
-  if (value === secret) return next();
+  // Only accept a single string header; reject multi-valued (array) headers to
+  // avoid header-smuggling ambiguity across proxies (some pick first, some last).
+  if (typeof provided === 'string' && provided === secret) return next();
   return res.status(403).json({ success: false, message: 'Forbidden: invalid internal secret' });
 };

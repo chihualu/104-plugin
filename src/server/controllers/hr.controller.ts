@@ -268,6 +268,18 @@ export class HRController {
         const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
         if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
 
+        // Server-side per-day limit (max 2 per day: in + out). Callers can bypass
+        // the UI, so enforce it here at least per-request.
+        if (Array.isArray(schedules)) {
+            const perDay: Record<string, number> = {};
+            for (const s of schedules) {
+                perDay[s.date] = (perDay[s.date] || 0) + 1;
+                if (perDay[s.date] > 2) {
+                    return res.status(400).json({ success: false, message: `${s.date} 單日預約超過上限（每日最多 2 筆）` });
+                }
+            }
+        }
+
         const tasksData = [];
 
         for (const s of schedules) {
