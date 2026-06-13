@@ -1,4 +1,3 @@
-import cron from 'node-cron';
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
 import { LineBotService } from './lineBot.service';
@@ -9,15 +8,12 @@ const prisma = new PrismaClient();
 export class SchedulerService {
 
   static init() {
-    // Task Execution is now handled by the Go Scheduler Service.
-    // We only keep the Monthly Check here.
-
-    // Schedule Monthly Check (Every 25th at 10:00 AM)
-    cron.schedule('0 10 25 * *', () => {
-        this.runMonthlyCheck();
-    });
-
-    logger.info('Scheduler Service initialized (Monthly Check only)');
+    // Both scheduled-task execution AND the monthly attendance check are triggered
+    // by the Go Scheduler Service (which POSTs /api/internal/monthly-check). We do
+    // NOT register an in-process cron here: doing so would run the monthly check
+    // TWICE (once via Node cron, once via the Go trigger) and double-send LINE
+    // notifications. This matches D's design where Node has no in-process cron.
+    logger.info('Scheduler Service initialized (triggers handled by Go scheduler)');
   }
 
   static async runMonthlyCheck() {

@@ -18,8 +18,10 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install necessary runtime dependencies (if any)
-# RUN apk add --no-cache ca-certificates
+# tzdata + TZ so the monthly cron computes "25th 10:00" in Asia/Taipei, not UTC
+# (Go's now.Location() reads the container TZ). ca-certificates for HTTPS calls.
+RUN apk add --no-cache tzdata ca-certificates
+ENV TZ=Asia/Taipei
 
 # Copy binary from builder
 COPY --from=builder /app/scheduler .
