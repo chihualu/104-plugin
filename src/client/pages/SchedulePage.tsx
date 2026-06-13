@@ -19,6 +19,7 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
 
   const [historyTasks, setHistoryTasks] = useState<any[]>([]);
   const [defaultLoc, setDefaultLoc] = useState<any>(null);
+  const [isUnconfiguredFallback, setIsUnconfiguredFallback] = useState(false);
   
   // History Pagination
   const [historyHasMore, setHistoryHasMore] = useState(true);
@@ -82,9 +83,12 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
         // Initial default location check (only on first load if not set)
         if (!location && pendingTasks.length === 0) {
             const fallback = { lat: 25.033964, lng: 121.564468 }; // Taipei 101
+            const hasDefault = !!res.data.data.defaultLocation;
             const targetLoc = res.data.data.defaultLocation || fallback;
             setDefaultLoc(targetLoc);
             setLocation(targetLoc);
+            // 無公司預設、退回 Taipei 101 → 標記未設定，送出前要求明確確認，避免誤打卡
+            setIsUnconfiguredFallback(!hasDefault);
         }
       } else {
         setPendingHasMore(false);
@@ -124,6 +128,15 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
     if (selectedDates.length === 0) return Toast.show('請選擇日期');
     if (!checkInEnabled && !checkOutEnabled) return Toast.show('請至少選擇一種打卡類型');
     if (!location) return Toast.show('請設定 GPS 座標');
+
+    if (isUnconfiguredFallback) {
+        const ok = await Dialog.confirm({
+            content: '您尚未設定打卡地點，目前為預設位置（台北101）。建議先在地圖上選擇實際打卡地點。確定要以預設位置送出預約嗎？',
+            confirmText: '確定使用',
+            cancelText: '返回選擇',
+        });
+        if (!ok) return;
+    }
     
     // Validate ranges
     if (checkInEnabled && checkInStart >= checkInEnd) return Toast.show('上班開始時間必須早於結束時間');
@@ -288,10 +301,11 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
                 <List header='3. 設定地點 (GPS)'>
                     <div style={{ padding: 12, background: 'var(--color-background)' }}>
                         {location && (
-                            <LocationPicker 
-                                value={location} 
+                            <LocationPicker
+                                value={location}
                                 defaultValue={defaultLoc}
-                                onChange={setLocation} 
+                                onChange={setLocation}
+                                onUserPick={() => setIsUnconfiguredFallback(false)}
                             />
                         )}
                         {!location && <AutoCenter>Loading Map...</AutoCenter>}

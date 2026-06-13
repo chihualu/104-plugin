@@ -16,6 +16,7 @@ interface Props {
   value?: { lat: number; lng: number };
   defaultValue?: { lat: number; lng: number };
   onChange: (val: { lat: number; lng: number }) => void;
+  onUserPick?: () => void; // 使用者實際選了地點（非 init fallback）時呼叫
 }
 
 const LocationMarker = ({ position, onChange }: { position: L.LatLng, onChange: (pos: L.LatLng) => void }) => {
@@ -29,7 +30,7 @@ const LocationMarker = ({ position, onChange }: { position: L.LatLng, onChange: 
   return position ? <Marker position={position} /> : null;
 };
 
-export default function LocationPicker({ value, defaultValue, onChange }: Props) {
+export default function LocationPicker({ value, defaultValue, onChange, onUserPick }: Props) {
   const [pos, setPos] = useState<L.LatLng | null>(null);
   const mapRef = useRef<L.Map>(null);
 
@@ -59,6 +60,7 @@ export default function LocationPicker({ value, defaultValue, onChange }: Props)
   const handleMapClick = (newPos: L.LatLng) => {
     setPos(newPos);
     onChange({ lat: newPos.lat, lng: newPos.lng });
+    onUserPick?.(); // 使用者主動選地點（點地圖/公司預設/目前位置/輸入），用以區分 init fallback
   };
 
   const handleReset = () => {

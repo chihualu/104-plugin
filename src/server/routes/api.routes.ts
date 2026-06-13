@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { HRController } from '../controllers/hr.controller';
 import { DelegationController } from '../controllers/delegation.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, internalAuth } from '../middleware/auth.middleware';
 import { rateLimit } from 'express-rate-limit';
 
 const router = Router();
@@ -27,8 +27,8 @@ router.get('/check-binding', AuthController.checkBinding);
 router.get('/companies', AuthController.getCompanies);
 
 // Internal Routes (For Go Scheduler)
-router.post('/internal/execute-task', HRController.executeScheduledTask);
-router.post('/internal/monthly-check', HRController.runMonthlyAttendanceCheck);
+router.post('/internal/execute-task', internalAuth, HRController.executeScheduledTask);
+router.post('/internal/monthly-check', internalAuth, HRController.runMonthlyAttendanceCheck);
 
 // HR Routes
 router.use(authenticate); // Attempt to parse token

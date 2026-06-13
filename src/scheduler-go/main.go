@@ -128,7 +128,17 @@ func triggerMonthlyCheckAPI() {
 
 	apiURL := fmt.Sprintf("%s/api/internal/monthly-check", nodeURL)
 
-	resp, err := http.Post(apiURL, "application/json", nil)
+	req, err := http.NewRequest("POST", apiURL, nil)
+	if err != nil {
+		fmt.Printf("Failed to build monthly check request: %v\n", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if secret := os.Getenv("INTERNAL_API_SECRET"); secret != "" {
+		req.Header.Set("X-Internal-Secret", secret)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		fmt.Printf("Failed to trigger monthly check: %v\n", err)
 		return

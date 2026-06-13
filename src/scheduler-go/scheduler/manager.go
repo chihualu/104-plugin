@@ -65,11 +65,23 @@ func (m *TaskManager) ExecuteTask(task models.ScheduledTask) {
 
 	apiURL := fmt.Sprintf("%s/api/internal/execute-task", nodeURL)
 	payload, _ := json.Marshal(map[string]int{"taskId": task.ID})
+	secret := os.Getenv("INTERNAL_API_SECRET")
 
 	// Simple Retry Mechanism
 	maxRetries := 3
 	for i := 0; i < maxRetries; i++ {
-		resp, err := http.Post(apiURL, "application/json", bytes.NewBuffer(payload))
+		req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(payload))
+		if err != nil {
+			fmt.Printf("Attempt %d: Failed to build request for task %d: %v\n", i+1, task.ID, err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if secret != "" {
+			req.Header.Set("X-Internal-Secret", secret)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			fmt.Printf("Successfully triggered task %d on Node.js\n", task.ID)
 			resp.Body.Close()
