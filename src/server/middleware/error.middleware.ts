@@ -2,10 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { logger } from '../utils/logger';
 
-export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
+export const errorHandler = (err: any, req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof ZodError) {
-    logger.warn({ msg: 'Validation Error', errors: err.errors });
-    return res.status(400).json({ success: false, message: 'Validation Error', errors: err.errors });
+    logger.warn({ msg: 'Validation Error', errors: err.issues });
+    return res.status(400).json({ success: false, message: 'Validation Error', errors: err.issues });
   }
 
   logger.error({ 

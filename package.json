@@ -9,7 +9,7 @@
     "dev:client": "vite",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "build": "vite build",
-    "start": "tsx src/server/index.ts"
+    "start": "npx prisma migrate deploy && tsx src/server/index.ts"
   },
   "keywords": [],
   "author": "",

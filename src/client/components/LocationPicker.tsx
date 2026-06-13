@@ -16,6 +16,7 @@ interface Props {
   value?: { lat: number; lng: number };
   defaultValue?: { lat: number; lng: number };
   onChange: (val: { lat: number; lng: number }) => void;
+  onUserPick?: () => void; // 使用者實際選了地點（非 init fallback）時呼叫
 }
 
 const LocationMarker = ({ position, onChange }: { position: L.LatLng, onChange: (pos: L.LatLng) => void }) => {
@@ -29,7 +30,7 @@ const LocationMarker = ({ position, onChange }: { position: L.LatLng, onChange: 
   return position ? <Marker position={position} /> : null;
 };
 
-export default function LocationPicker({ value, defaultValue, onChange }: Props) {
+export default function LocationPicker({ value, defaultValue, onChange, onUserPick }: Props) {
   const [pos, setPos] = useState<L.LatLng | null>(null);
   const mapRef = useRef<L.Map>(null);
 
@@ -39,6 +40,11 @@ export default function LocationPicker({ value, defaultValue, onChange }: Props)
     } else if (defaultValue) {
         setPos(new L.LatLng(defaultValue.lat, defaultValue.lng));
         onChange(defaultValue);
+    } else {
+        // Fallback: Taipei 101，確保無 value/defaultValue 時地圖仍能初始化
+        const fallback = new L.LatLng(25.033964, 121.564468);
+        setPos(fallback);
+        onChange({ lat: fallback.lat, lng: fallback.lng });
     }
   }, []); // Init only
 
@@ -54,6 +60,7 @@ export default function LocationPicker({ value, defaultValue, onChange }: Props)
   const handleMapClick = (newPos: L.LatLng) => {
     setPos(newPos);
     onChange({ lat: newPos.lat, lng: newPos.lng });
+    onUserPick?.(); // 使用者主動選地點（點地圖/公司預設/目前位置/輸入），用以區分 init fallback
   };
 
   const handleReset = () => {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, Toast, AutoCenter, CheckList, Modal, ProgressBar, NavBar } from 'antd-mobile';
-import { LoopOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 import FullScreenLoading from '../components/FullScreenLoading';
+import { authHeader } from '../auth';
 
 interface Props {
   lineUserId: string;
@@ -37,7 +37,7 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
     try {
       const response = await fetch('/api/audit/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ lineUserId, approvalKeys: selectedKeys })
       });
 
@@ -136,7 +136,7 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
                 <CheckList
                   multiple
                   value={selectedKeys}
-                  onChange={v => setSelectedKeys(v)}
+                  onChange={v => setSelectedKeys(v as string[])}
                 >
                   {auditList.map((item, idx) => (
                     <CheckList.Item key={item.EnWorksheetDataID || idx} value={item.EnWorksheetDataID || `unknown_${idx}`}>

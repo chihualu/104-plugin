@@ -3,6 +3,7 @@ import liff from '@line/liff';
 import axios from 'axios';
 import { ApiResponse } from '../shared/types';
 import FullScreenLoading from './components/FullScreenLoading';
+import { setToken, clearToken } from './auth';
 
 // Lazy load pages
 const InitPage = lazy(() => import('./pages/InitPage'));
@@ -16,21 +17,34 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const SalaryPage = lazy(() => import('./pages/SalaryPage_Modern'));
 const TeamAttendancePage = lazy(() => import('./pages/TeamAttendancePage'));
 const SchedulePage = lazy(() => import('./pages/SchedulePage'));
+const DelegatePage = lazy(() => import('./pages/DelegatePage'));
 
-type AppState = 'INIT' | 'BINDING' | 'DASHBOARD' | 'CHECK_IN' | 'CHECK_IN_NOW' | 'AUDIT' | 'SETTINGS' | 'USAGES' | 'SALARY' | 'TEAM_ATTENDANCE' | 'SCHEDULE';
+type AppState = 'INIT' | 'BINDING' | 'DASHBOARD' | 'CHECK_IN' | 'CHECK_IN_NOW' | 'AUDIT' | 'SETTINGS' | 'USAGES' | 'SALARY' | 'TEAM_ATTENDANCE' | 'SCHEDULE' | 'DELEGATE';
 
 export const App = () => {
   const [state, setState] = useState<AppState>('INIT');
   const [lineUserId, setLineUserId] = useState<string>('');
   const [empId, setEmpId] = useState<string>('');
   const [debugMsg, setDebugMsg] = useState<string>('Initializing...');
+  // 代理模式：非 null 時，功能頁以此對象身分操作（薪資 / 個人設定除外）。
+  // 注意：JWT token 仍是本人（actor），只是請求帶的 lineUserId 換成代理對象（target）。
+  const [actingAs, setActingAs] = useState<{ lineUserId: string; empId: string } | null>(null);
+
+  const effectiveLineUserId = actingAs ? actingAs.lineUserId : lineUserId;
 
   // Global API Error Handling (403 -> Binding)
   useEffect(() => {
     const interceptor = axios.interceptors.response.use(
       response => response,
       error => {
-        if (error.response && error.response.status === 403) {
+        const status = error.response && error.response.status;
+        if (status === 401) {
+          // Token missing/expired/invalid: drop it and send the user back to bind.
+          console.warn('401 detected, clearing token and redirecting to binding');
+          clearToken();
+          setState('BINDING');
+          window.history.replaceState({ page: 'BINDING' }, '', '#binding');
+        } else if (status === 403) {
           console.warn('403 detected, redirecting to binding page');
           setState('BINDING');
           window.history.replaceState({ page: 'BINDING' }, '', '#binding');
@@ -115,6 +129,7 @@ export const App = () => {
       const res = await axios.get<ApiResponse>(`/api/check-binding?lineUserId=${uid}`);
       if (res.data.success && res.data.data.isBound) {
         setEmpId(res.data.data.empId);
+        setToken(res.data.data.token);
         
         // Deep Linking Logic: Check if URL has a hash matching a page state
         const initialHash = window.location.hash.substring(1).toUpperCase();
@@ -140,6 +155,12 @@ export const App = () => {
 
   return (
     <Suspense fallback={<FullScreenLoading text='載入頁面中...' />}>
+      {actingAs && (
+        <div style={{ position: 'sticky', top: 0, zIndex: 1000, background: '#E67E22', color: '#fff', padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, fontWeight: 'bold' }}>
+          <span>⚠️ 代理中：{actingAs.empId}（薪資/設定仍為本人）</span>
+          <a style={{ color: '#fff', textDecoration: 'underline' }} onClick={() => setActingAs(null)}>退出</a>
+        </div>
+      )}
       {state === 'INIT' && <InitPage debugMsg={debugMsg} />}
       
       {state === 'BINDING' && (
@@ -147,23 +168,23 @@ export const App = () => {
       )}
 
       {state === 'DASHBOARD' && (
-        <DashboardPage 
-          empId={empId} 
-          lineUserId={lineUserId}
-          onNavigate={(page) => navigate(page)} 
+        <DashboardPage
+          empId={empId}
+          lineUserId={effectiveLineUserId}
+          onNavigate={(page) => navigate(page)}
         />
       )}
 
       {state === 'CHECK_IN_NOW' && (
-        <CheckInNowPage lineUserId={lineUserId} onBack={back} />
+        <CheckInNowPage lineUserId={effectiveLineUserId} onBack={back} />
       )}
 
       {state === 'CHECK_IN' && (
-        <CheckInPage lineUserId={lineUserId} onBack={back} />
+        <CheckInPage lineUserId={effectiveLineUserId} onBack={back} />
       )}
 
       {state === 'AUDIT' && (
-        <AuditPage lineUserId={lineUserId} onBack={back} />
+        <AuditPage lineUserId={effectiveLineUserId} onBack={back} />
       )}
 
       {state === 'SALARY' && (
@@ -171,11 +192,11 @@ export const App = () => {
       )}
 
       {state === 'TEAM_ATTENDANCE' && (
-        <TeamAttendancePage lineUserId={lineUserId} onBack={back} />
+        <TeamAttendancePage lineUserId={effectiveLineUserId} onBack={back} />
       )}
 
       {state === 'SCHEDULE' && (
-        <SchedulePage lineUserId={lineUserId} onBack={back} />
+        <SchedulePage lineUserId={effectiveLineUserId} onBack={back} />
       )}
 
       {state === 'SETTINGS' && (
@@ -184,6 +205,7 @@ export const App = () => {
           empId={empId} 
           onBack={back} 
           onLogout={() => {
+            clearToken();
             setState('BINDING');
             window.history.replaceState({ page: 'BINDING' }, '', '#binding');
           }}
@@ -192,6 +214,13 @@ export const App = () => {
 
       {state === 'USAGES' && (
         <AdminPage onBack={back} />
+      )}
+
+      {state === 'DELEGATE' && (
+        <DelegatePage
+          onBack={back}
+          onEnterProxy={(target) => { setActingAs(target); navigate('DASHBOARD'); }}
+        />
       )}
     </Suspense>
   );

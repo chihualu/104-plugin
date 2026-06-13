@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { NavBar, Tabs, Calendar, List, Button, Switch, Input, Toast, Tag, Modal, AutoCenter, InfiniteScroll, Card, Dialog } from 'antd-mobile';
+import { NavBar, Tabs, Calendar, List, Button, Switch, Input, Toast, Tag, AutoCenter, InfiniteScroll, Card, Dialog } from 'antd-mobile';
 import { AddOutline, UnorderedListOutline, ClockCircleOutline, CloseOutline, DeleteOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 import LocationPicker from '../components/LocationPicker';
@@ -19,6 +19,7 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
 
   const [historyTasks, setHistoryTasks] = useState<any[]>([]);
   const [defaultLoc, setDefaultLoc] = useState<any>(null);
+  const [isUnconfiguredFallback, setIsUnconfiguredFallback] = useState(false);
   
   // History Pagination
   const [historyHasMore, setHistoryHasMore] = useState(true);
@@ -80,9 +81,14 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
         setPendingHasMore(newTasks.length > 0 && !!res.data.data.nextCursor);
 
         // Initial default location check (only on first load if not set)
-        if (!location && res.data.data.defaultLocation && pendingTasks.length === 0) {
-            setDefaultLoc(res.data.data.defaultLocation);
-            setLocation(res.data.data.defaultLocation);
+        if (!location && pendingTasks.length === 0) {
+            const fallback = { lat: 25.033964, lng: 121.564468 }; // Taipei 101
+            const hasDefault = !!res.data.data.defaultLocation;
+            const targetLoc = res.data.data.defaultLocation || fallback;
+            setDefaultLoc(targetLoc);
+            setLocation(targetLoc);
+            // 無公司預設、退回 Taipei 101 → 標記未設定，送出前要求明確確認，避免誤打卡
+            setIsUnconfiguredFallback(!hasDefault);
         }
       } else {
         setPendingHasMore(false);
@@ -122,6 +128,15 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
     if (selectedDates.length === 0) return Toast.show('請選擇日期');
     if (!checkInEnabled && !checkOutEnabled) return Toast.show('請至少選擇一種打卡類型');
     if (!location) return Toast.show('請設定 GPS 座標');
+
+    if (isUnconfiguredFallback) {
+        const ok = await Dialog.confirm({
+            content: '您尚未設定打卡地點，目前為預設位置（台北101）。建議先在地圖上選擇實際打卡地點。確定要以預設位置送出預約嗎？',
+            confirmText: '確定使用',
+            cancelText: '返回選擇',
+        });
+        if (!ok) return;
+    }
     
     // Validate ranges
     if (checkInEnabled && checkInStart >= checkInEnd) return Toast.show('上班開始時間必須早於結束時間');
@@ -214,7 +229,7 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
       <NavBar onBack={onBack}>預約打卡</NavBar>
       
       <Tabs activeKey={activeTab} onChange={setActiveTab}>
-        <Tabs.Tab title='新增預約' key='add' icon={<AddOutline />}>
+        <Tabs.Tab title='新增預約' key='add' {...({ icon: <AddOutline /> } as any)}>
             <div style={{ padding: 12 }}>
                 <List header='1. 選擇日期 (可多選)'>
                     <Calendar
@@ -286,10 +301,11 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
                 <List header='3. 設定地點 (GPS)'>
                     <div style={{ padding: 12, background: 'var(--color-background)' }}>
                         {location && (
-                            <LocationPicker 
-                                value={location} 
+                            <LocationPicker
+                                value={location}
                                 defaultValue={defaultLoc}
-                                onChange={setLocation} 
+                                onChange={setLocation}
+                                onUserPick={() => setIsUnconfiguredFallback(false)}
                             />
                         )}
                         {!location && <AutoCenter>Loading Map...</AutoCenter>}
@@ -297,14 +313,14 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
                 </List>
 
                 <div style={{ marginTop: 20 }}>
-                    <Button block color='primary' size='large' onClick={handleSubmit} loading={loading}>
+                    <Button block color='primary' size='large' onClick={() => { handleSubmit(); }} loading={loading}>
                         送出預約 ({selectedDates.length * ((checkInEnabled?1:0) + (checkOutEnabled?1:0))} 筆)
                     </Button>
                 </div>
             </div>
         </Tabs.Tab>
 
-        <Tabs.Tab title='待執行' key='pending' icon={<ClockCircleOutline />}>
+        <Tabs.Tab title='待執行' key='pending' {...({ icon: <ClockCircleOutline /> } as any)}>
             {pendingTasks.length > 0 && (
                  <div style={{ padding: '12px 16px', background: 'var(--color-background)' }}>
                     <Button block color='danger' shape='rounded' onClick={handleCancelAll} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
@@ -335,7 +351,7 @@ export default function SchedulePage({ lineUserId, onBack }: Props) {
             <InfiniteScroll loadMore={loadMorePending} hasMore={pendingHasMore} />
         </Tabs.Tab>
 
-        <Tabs.Tab title='歷史紀錄' key='history' icon={<UnorderedListOutline />}>
+        <Tabs.Tab title='歷史紀錄' key='history' {...({ icon: <UnorderedListOutline /> } as any)}>
             <List>
                 {historyTasks.map(task => (
                     <List.Item

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Button, Form, Input, Toast, Selector, Dialog, Card, AutoCenter } from 'antd-mobile';
+import { Button, Form, Input, Toast, Selector, Dialog, Card } from 'antd-mobile';
 import { UserAddOutline } from 'antd-mobile-icons';
 import liff from '@line/liff';
 import axios from 'axios';
 import { ApiResponse } from '../../shared/types';
+import { setToken } from '../auth';
 
 interface Props {
   lineUserId: string;
@@ -88,6 +89,7 @@ export default function BindingPage({ lineUserId, onSuccess }: Props) {
       
       const res = await axios.post<ApiResponse>('/api/bind', payload);
       if (res.data.success) {
+        setToken((res.data as any).token);
         Toast.show({ icon: 'success', content: '綁定成功' });
         onSuccess();
       }

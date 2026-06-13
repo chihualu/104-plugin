@@ -21,6 +21,8 @@ model UserBinding {
   
   logs              UsageLog[]
   scheduledTasks    ScheduledTask[]
+  grantsGiven       Delegation[] @relation("Granter")
+  grantsReceived    Delegation[] @relation("Grantee")
 }
 
 model ScheduledTask {
@@ -42,8 +44,25 @@ model UsageLog {
   id        Int      @id @default(autoincrement())
   user      UserBinding @relation(fields: [userId], references: [id])
   userId    Int
+  actorUserId Int?    // 實際執行者 id（代理操作時=操作者；本人操作時可為 null）
   action    String   // 'CHECK_IN' | 'AUDIT'
   count     Int      // 筆數
   details   String?  // 備註 (例如日期範圍)
   createdAt DateTime @default(now())
+}
+
+// 代理授權：granter（被代理人）授權 grantee（操作者）代為操作其帳號
+model Delegation {
+  id         Int         @id @default(autoincrement())
+  granterId  Int         // 被代理人（把權限授權出去的人）
+  granter    UserBinding @relation("Granter", fields: [granterId], references: [id])
+  granteeId  Int         // 操作者（被授權可代理的人）
+  grantee    UserBinding @relation("Grantee", fields: [granteeId], references: [id])
+  active     Boolean     @default(true)
+  expiresAt  DateTime?   // 選填，到期後失效
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([granterId, granteeId])
+  @@index([granteeId, active])
 }

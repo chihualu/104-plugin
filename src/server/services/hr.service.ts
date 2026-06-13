@@ -17,7 +17,7 @@ const salaryCache = new LRUCache<string, any>({
 
 export class HRService {
   
-  static async applyCheckIn(lineUserId: string, payload: any, progressCallback?: (data: any) => void) {
+  static async applyCheckIn(lineUserId: string, payload: any, progressCallback?: (data: any) => void, actorLineUserId?: string) {
     const creds = await AuthService.getUserCredentials(lineUserId);
     const { dates, timeStart, timeEnd, reason } = payload;
     const fmtStart = timeStart ? timeStart.replace(':', '') : '';
@@ -58,16 +58,16 @@ export class HRService {
     }
 
     if (successCount > 0) {
-        await this.logUsage(creds.dbUser.id, 'CHECK_IN', successCount, `Dates: ${dates.join(', ')}`);
+        await this.logUsage(creds.dbUser.id, 'CHECK_IN', successCount, `Dates: ${dates.join(', ')}`, actorLineUserId);
     }
 
     if (progressCallback) progressCallback({ type: 'done', successCount });
   }
 
-  static async checkInNow(lineUserId: string, payload: any) {
+  static async checkInNow(lineUserId: string, payload: any, actorLineUserId?: string) {
     const creds = await AuthService.getUserCredentials(lineUserId);
     await HR104Adapter.insertCard(creds, payload);
-    await this.logUsage(creds.dbUser.id, 'CHECK_IN', 1, `GPS: ${payload.lat},${payload.lng}`);
+    await this.logUsage(creds.dbUser.id, 'CHECK_IN', 1, `GPS: ${payload.lat},${payload.lng}`, actorLineUserId);
   }
 
   static async executeScheduledTask(taskId: number) {
@@ -179,7 +179,7 @@ export class HRService {
 
     // Heuristic parsing for 104 Salary HTML Table
     // Strategy: Look for rows with 2 or 4 columns.
-    $('table tr').each((i, el) => {
+    $('table tr').each((_i, el) => {
         const tds = $(el).find('td');
         
         // Helper to add item
@@ -346,7 +346,7 @@ export class HRService {
     const data = await this.getPersonalAttendance(lineUserId, year, month);
     const today = new Date().toISOString().split('T')[0];
     
-    const abnormalities = data.filter(d => {
+    const abnormalities = data.filter((d: any) => {
         if (d.date > today) return false; // Skip future
         
         // 1. Explicit Exception
@@ -374,7 +374,7 @@ export class HRService {
     const data: any[] = [];
     let currentLeave: any = null;
 
-    $('table tr').each((i, el) => {
+    $('table tr').each((_i, el) => {
         const tds = $(el).find('td');
         
         // Header Row: contains "假勤名稱" and spans 2 columns
@@ -427,7 +427,7 @@ export class HRService {
     return allItems;
   }
 
-  static async approveWorkflows(lineUserId: string, approvalKeys: string[], progressCallback?: (data: any) => void) {
+  static async approveWorkflows(lineUserId: string, approvalKeys: string[], progressCallback?: (data: any) => void, actorLineUserId?: string) {
     const creds = await AuthService.getUserCredentials(lineUserId);
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
     let successCount = 0;
@@ -446,7 +446,7 @@ export class HRService {
     }
 
     if (successCount > 0) {
-        await this.logUsage(creds.dbUser.id, 'AUDIT', successCount, `Keys: ${approvalKeys.length}`);
+        await this.logUsage(creds.dbUser.id, 'AUDIT', successCount, `Keys: ${approvalKeys.length}`, actorLineUserId);
     }
 
     if (progressCallback) progressCallback({ type: 'done', successCount });
@@ -511,9 +511,15 @@ export class HRService {
     return Object.values(companyStats);
   }
 
-  private static async logUsage(userId: number, action: 'CHECK_IN' | 'AUDIT', count: number, details?: string) {
+  private static async logUsage(userId: number, action: 'CHECK_IN' | 'AUDIT', count: number, details?: string, actorLineUserId?: string) {
     try {
-        await prisma.usageLog.create({ data: { userId, action, count, details } });
-    } catch (e) { logger.error('Log Usage failed', e); }
+        // 解析實際操作者 id（代理時=操作者，本人時=該帳號本人）。未提供則為 null。
+        let actorUserId: number | null = null;
+        if (actorLineUserId) {
+            const actor = await prisma.userBinding.findUnique({ where: { lineUserId: actorLineUserId } });
+            actorUserId = actor?.id ?? null;
+        }
+        await prisma.usageLog.create({ data: { userId, action, count, details, actorUserId } });
+    } catch (e) { logger.error({ err: e }, 'Log Usage failed'); }
   }
 }

@@ -27,7 +27,7 @@ export default function AdminPage({ onBack }: Props) {
       
       {loading ? (
         <AutoCenter style={{ marginTop: 50 }}>
-          <LoopOutline fontSize={32} spin />
+          <LoopOutline fontSize={32} {...({ spin: true } as any)} />
         </AutoCenter>
       ) : (
         <div style={{ padding: 12 }}>

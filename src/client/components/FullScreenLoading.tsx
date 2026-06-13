@@ -1,4 +1,4 @@
-import { AutoCenter, SpinLoading } from 'antd-mobile';
+import { SpinLoading } from 'antd-mobile';
 
 interface Props {
   text?: string;

@@ -23,7 +23,7 @@ export interface BindingStatus {
 export interface CheckInPayload {
   lineUserId: string;
   dates: string[]; // ['2026-01-20', '2026-01-21']
-  timeStart: string; // '09:00'
-  timeEnd: string;   // '18:00'
+  timeStart?: string; // '09:00'
+  timeEnd?: string;   // '18:00'
   reason: string;
 }

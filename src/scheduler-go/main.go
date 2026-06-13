@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -35,6 +36,9 @@ func main() {
 
 	// Start Monthly Task Loader
 	go startMonthlyLoader()
+
+	// Start Monthly Attendance Check Trigger (Every 25th at 10:00)
+	go startMonthlyAttendanceCheckCron()
 
 	port := os.Getenv("SCHEDULER_PORT")
 	if port == "" {
@@ -91,6 +95,57 @@ func startDailyCleaner() {
 	for range ticker.C {
 		cleanExpiredTasks()
 	}
+}
+
+func startMonthlyAttendanceCheckCron() {
+	for {
+		now := time.Now()
+		// Target: 25th of current or next month at 10:00
+		target := time.Date(now.Year(), now.Month(), 25, 10, 0, 0, 0, now.Location())
+
+		if now.After(target) {
+			// Already passed 25th this month, target next month
+			target = target.AddDate(0, 1, 0)
+		}
+
+		duration := target.Sub(now)
+		fmt.Printf("Monthly Attendance Check: Next trigger in %v (%v)\n", duration, target)
+
+		time.Sleep(duration)
+		triggerMonthlyCheckAPI()
+
+		// Small buffer to avoid immediate re-trigger if execution was instant
+		time.Sleep(1 * time.Minute)
+	}
+}
+
+func triggerMonthlyCheckAPI() {
+	fmt.Println(">>> TRIGGERING MONTHLY ATTENDANCE CHECK <<<")
+	nodeURL := os.Getenv("NODE_SERVER_URL")
+	if nodeURL == "" {
+		nodeURL = "http://localhost:3000"
+	}
+
+	apiURL := fmt.Sprintf("%s/api/internal/monthly-check", nodeURL)
+
+	req, err := http.NewRequest("POST", apiURL, nil)
+	if err != nil {
+		fmt.Printf("Failed to build monthly check request: %v\n", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if secret := os.Getenv("INTERNAL_API_SECRET"); secret != "" {
+		req.Header.Set("X-Internal-Secret", secret)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Printf("Failed to trigger monthly check: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	fmt.Printf("Monthly check triggered, Node.js returned status %d\n", resp.StatusCode)
 }
 
 func cleanExpiredTasks() {

@@ -83,7 +83,7 @@ export default function CheckInNowPage({ lineUserId, onBack }: Props) {
         <Card style={{ marginBottom: 16 }}>
             {loading ? (
                 <AutoCenter style={{ padding: '20px 0' }}>
-                    <LoopOutline fontSize={48} spin color='var(--adm-color-primary)' />
+                    <LoopOutline fontSize={48} {...({ spin: true } as any)} color='var(--adm-color-primary)' />
                     <div style={{ marginTop: 12 }}>正在獲取位置...</div>
                 </AutoCenter>
             ) : (
@@ -105,7 +105,7 @@ export default function CheckInNowPage({ lineUserId, onBack }: Props) {
                 size='large' 
                 loading={submitting}
                 onClick={onCheckIn}
-                prefix={<CheckShieldOutline />}
+                {...({ prefix: <CheckShieldOutline /> } as any)}
               >
                 確認打卡
               </Button>
