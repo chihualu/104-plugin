@@ -12,7 +12,7 @@ import { LineBotService } from './services/lineBot.service';
 import { WebhookController } from './controllers/webhook.controller';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
 // Trust Proxy for Rate Limiting
 app.set('trust proxy', 1);
@@ -34,7 +34,7 @@ app.use(helmet({
 // Webhook Route (Must be before global body-parser)
 app.post('/callback', 
   express.json({ 
-    verify: (req: any, res, buf) => { req.rawBody = buf.toString(); } 
+    verify: (req: any, _res, buf) => { req.rawBody = buf.toString(); }
   }), 
   WebhookController.handleWebhook
 );
@@ -52,7 +52,7 @@ app.use(express.static(distPath));
 app.use('/api', apiRoutes);
 
 // SPA Fallback
-app.get(/(.*)/, (req, res) => {
+app.get(/(.*)/, (_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 

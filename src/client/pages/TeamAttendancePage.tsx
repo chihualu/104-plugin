@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { NavBar, Button, List, Picker, Tag, AutoCenter, Toast, Tabs, Card, Grid } from 'antd-mobile';
-import { LoopOutline, CalendarOutline, CheckCircleOutline, SendOutline } from 'antd-mobile-icons';
+import { NavBar, Button, List, Picker, Tag, AutoCenter, Toast, Tabs, Card } from 'antd-mobile';
+import { SendOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 import liff from '@line/liff';
 import FullScreenLoading from '../components/FullScreenLoading';
@@ -85,7 +85,8 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
     }));
 
     const liffId = import.meta.env.VITE_LIFF_ID;
-    const shareUrl = `https://liff.line.me/${liffId}#check_in`;
+    // 防呆：liffId 缺失時退回官網，避免產生 .../undefined 的不合法 URI 讓整張 Flex 被拒
+    const shareUrl = liffId ? `https://liff.line.me/${liffId}#check_in` : 'https://line.me';
 
     const flexContent: any = {
         type: 'bubble',
@@ -136,7 +137,9 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
 
     try {
         if (!liff.isApiAvailable('shareTargetPicker')) {
-            return Toast.show('您的 LINE 版本不支援分享功能');
+            // 多半是在 LINE App 外（外部瀏覽器/桌面）開啟，或非 LIFF 環境
+            Toast.show('此環境不支援分享，請在手機 LINE App 內開啟');
+            return;
         }
         const res = await liff.shareTargetPicker([
             {
@@ -145,9 +148,16 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
                 contents: flexContent
             }
         ]);
-        if (res) Toast.show('分享成功');
-    } catch (e) {
-        Toast.show('分享失敗或已取消');
+        if (res) {
+            Toast.show('分享成功');
+        } else {
+            // res 為 null：使用者自行關閉了選擇視窗
+            Toast.show('已取消分享');
+        }
+    } catch (e: any) {
+        // 暴露真正的錯誤訊息（缺 chat_message.write scope、Flex 格式錯誤等都會在此顯示）
+        console.error('shareTargetPicker error:', e);
+        Toast.show(`分享失敗：${e?.message || e}`);
     }
   };
 
@@ -203,7 +213,7 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
           visible={pickerVisible}
           onClose={() => setPickerVisible(false)}
           value={selectedValue}
-          onConfirm={v => setSelectedValue(v)}
+          onConfirm={v => setSelectedValue(v as (string | null)[])}
         />
       </div>
 
@@ -217,7 +227,7 @@ export default function TeamAttendancePage({ lineUserId, onBack }: Props) {
                           <div style={{ fontSize: 14, fontWeight: 'bold', color: '#6F4E37' }}>本月異常統計</div>
                           <div style={{ fontSize: 12, color: '#8D6E63' }}>共 {data.punches.length} 筆待補打卡</div>
                       </div>
-                      <Button color='primary' size='small' shape='rounded' onClick={onShare} style={{ fontSize: 13 }}>
+                      <Button color='primary' size='small' shape='rounded' onClick={() => { onShare(); }} style={{ fontSize: 13 }}>
                           <SendOutline /> 分享給團隊
                       </Button>
                   </div>

@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, NavBar, List, AutoCenter, Tag, Grid, Toast } from 'antd-mobile';
+import { Button, Card, NavBar, AutoCenter, Tag, Grid, Toast } from 'antd-mobile';
 import { LoopOutline, CheckCircleOutline, UserOutline, UserAddOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 import liff from '@line/liff';
-
-import DOMPurify from 'dompurify';
 
 interface Props {
   empId: string; 
@@ -60,7 +58,7 @@ export default function SettingsPage({ lineUserId, onBack, onLogout }: Props) {
       
       {loading ? (
         <AutoCenter style={{ marginTop: 50 }}>
-          <LoopOutline fontSize={32} spin />
+          <LoopOutline fontSize={32} {...({ spin: true } as any)} />
         </AutoCenter>
             ) : (
               <div style={{ padding: 12 }}>

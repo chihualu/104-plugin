@@ -1,0 +1,80 @@
+# Stage 1: Build Go Scheduler
+FROM golang:1.24-alpine AS go-builder
+
+WORKDIR /app-go
+
+# Copy Go dependency files
+COPY src/scheduler-go/go.mod src/scheduler-go/go.sum ./
+RUN go mod download
+
+# Copy Go source code
+COPY src/scheduler-go/ .
+
+# Build Go binary
+ENV CGO_ENABLED=0 GOOS=linux
+RUN go build -o /app-go/scheduler-app .
+
+# Stage 2: Build Node.js App & Frontend
+FROM node:20-alpine AS node-builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache tzdata
+
+# Install Node dependencies
+COPY package.json package-lock.json ./
+COPY prisma ./prisma/
+RUN npm ci
+
+# Copy Node source
+COPY . .
+
+# Generate Prisma & Build
+RUN npx prisma generate
+RUN npm run build
+
+# Stage 3: Combined Runtime
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Set timezone
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Taipei
+
+# Install production Node dependencies
+COPY package.json package-lock.json ./
+RUN npm ci --only=production
+
+# Copy built assets from Node builder
+COPY --from=node-builder /app/dist ./dist
+COPY --from=node-builder /app/src ./src
+COPY --from=node-builder /app/config ./config
+COPY --from=node-builder /app/prisma ./prisma
+COPY --from=node-builder /app/node_modules/.prisma ./node_modules/.prisma
+
+# Copy Go binary from Go builder
+COPY --from=go-builder /app-go/scheduler-app ./scheduler-app
+
+# Install tsx
+RUN npm install -g tsx
+
+# Create a startup script
+RUN echo '#!/bin/sh' > start.sh && \
+    echo '# Start Go Scheduler in background' >> start.sh && \
+    echo './scheduler-app &' >> start.sh && \
+    echo '# Start Node.js Server' >> start.sh && \
+    echo 'npm run start' >> start.sh && \
+    chmod +x start.sh
+
+# Expose ports (Node: 3000, Go: 4000)
+EXPOSE 3000 4000
+
+# Environment variables to link them internally (localhost)
+ENV NODE_SERVER_URL=http://localhost:3000
+ENV SCHEDULER_URL=http://localhost:4000
+ENV SCHEDULER_PORT=4000
+
+# Start command
+CMD ["./start.sh"]

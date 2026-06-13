@@ -22,8 +22,6 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
       return res.status(401).json({ success: false, message: 'Invalid Token' });
     }
   }
-  // Missing or malformed header
-  // TODO: Transition period - allow requests without header for now.
-  // return res.status(401).json({ success: false, message: 'Authorization header missing or invalid' });
-  next();
+  // Missing or malformed Authorization header → reject (strict auth).
+  return res.status(401).json({ success: false, message: 'Authorization required' });
 };

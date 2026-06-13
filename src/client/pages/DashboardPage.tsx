@@ -8,7 +8,7 @@ import logo from '../assets/logo.svg';
 interface Props {
   empId: string;
   lineUserId: string;
-  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'USAGES' | 'SALARY' | 'CHECK_IN_NOW' | 'TEAM_ATTENDANCE' | 'SCHEDULE') => void;
+  onNavigate: (page: 'CHECK_IN' | 'AUDIT' | 'SETTINGS' | 'BINDING' | 'USAGES' | 'SALARY' | 'CHECK_IN_NOW' | 'TEAM_ATTENDANCE' | 'SCHEDULE' | 'DELEGATE') => void;
 }
 
 export default function DashboardPage({ empId, lineUserId, onNavigate }: Props) {
@@ -89,6 +89,13 @@ export default function DashboardPage({ empId, lineUserId, onNavigate }: Props) 
           <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(128, 128, 128, 0.1)' }}>
               <TeamOutline fontSize={32} color='var(--color-text-secondary)' />
               <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>使用統計</div>
+          </Card>
+        </Grid.Item>
+
+        <Grid.Item onClick={() => onNavigate('DELEGATE')}>
+          <Card style={{ textAlign: 'center', height: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', background: 'rgba(143, 188, 143, 0.15)' }}>
+              <TeamOutline fontSize={32} color='var(--color-secondary)' />
+              <div style={{ marginTop: 8, fontSize: 16, fontWeight: 'bold' }}>代理設定</div>
           </Card>
         </Grid.Item>
 

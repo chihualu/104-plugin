@@ -1,5 +1,5 @@
 import DOMPurify from 'dompurify';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { NavBar, Form, Input, Button, Toast, List, Modal, Tabs, AutoCenter } from 'antd-mobile';
 import { LoopOutline } from 'antd-mobile-icons';
 import axios from 'axios';
@@ -141,7 +141,7 @@ export default function SalaryPage({ lineUserId, onBack }: Props) {
 
       {loading && salaryList.length === 0 ? (
         <AutoCenter style={{ marginTop: 50 }}>
-          <LoopOutline fontSize={32} spin />
+          <LoopOutline fontSize={32} {...({ spin: true } as any)} />
         </AutoCenter>
       ) : (
         <>

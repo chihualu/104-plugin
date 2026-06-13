@@ -2,9 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { LineBotService } from '../services/lineBot.service';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || '';
 
 export class WebhookController {

@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
-import { useEffect, useState } from 'react';
-import { NavBar, Form, Input, Button, Toast, Modal, Tabs, AutoCenter, Card, Grid } from 'antd-mobile';
+import { useState } from 'react';
+import { NavBar, Form, Input, Button, Toast, Tabs, AutoCenter, Card, Grid } from 'antd-mobile';
 import { LoopOutline, CheckShieldOutline, PayCircleOutline, BillOutline, CloseOutline } from 'antd-mobile-icons';
 import axios from 'axios';
 import './SalaryPage_Modern.css';
@@ -19,7 +19,7 @@ export default function SalaryPage({ lineUserId, onBack }: Props) {
   const [loading, setLoading] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [selectedDetail, setSelectedDetail] = useState<{ title: string, items: any[], html: string } | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [, setLoadingDetail] = useState(false);
   
   // 1. Verify
   const onVerify = async (values: any) => {
@@ -151,7 +151,7 @@ export default function SalaryPage({ lineUserId, onBack }: Props) {
 
       {loading && salaryList.length === 0 ? (
         <AutoCenter style={{ marginTop: 50 }}>
-          <LoopOutline fontSize={32} spin color='var(--color-primary)' />
+          <LoopOutline fontSize={32} {...({ spin: true } as any)} color='var(--color-primary)' />
         </AutoCenter>
       ) : (
         <div style={{ padding: 16 }}>

@@ -39,6 +39,11 @@ export default function LocationPicker({ value, defaultValue, onChange }: Props)
     } else if (defaultValue) {
         setPos(new L.LatLng(defaultValue.lat, defaultValue.lng));
         onChange(defaultValue);
+    } else {
+        // Fallback: Taipei 101，確保無 value/defaultValue 時地圖仍能初始化
+        const fallback = new L.LatLng(25.033964, 121.564468);
+        setPos(fallback);
+        onChange({ lat: fallback.lat, lng: fallback.lng });
     }
   }, []); // Init only
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { HRController } from '../controllers/hr.controller';
+import { DelegationController } from '../controllers/delegation.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { rateLimit } from 'express-rate-limit';
 
@@ -27,6 +28,7 @@ router.get('/companies', AuthController.getCompanies);
 
 // Internal Routes (For Go Scheduler)
 router.post('/internal/execute-task', HRController.executeScheduledTask);
+router.post('/internal/monthly-check', HRController.runMonthlyAttendanceCheck);
 
 // HR Routes
 router.use(authenticate); // Attempt to parse token
@@ -54,5 +56,11 @@ router.post('/schedule/cancel', HRController.cancelSchedule);
 router.post('/schedule/cancel-all', HRController.cancelAllSchedules);
 
 router.get('/usages/stats', HRController.getUsagesStats);
+
+// 代理授權管理（granter 一律取自 req.user，本人發起）
+router.get('/delegation/acting-for', DelegationController.actingFor);
+router.get('/delegation/granted', DelegationController.granted);
+router.post('/delegation/grant', DelegationController.grant);
+router.post('/delegation/revoke', DelegationController.revoke);
 
 export default router;

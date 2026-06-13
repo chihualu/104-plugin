@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button, Form, Input, Toast, Calendar, Card, NavBar, Modal, ProgressBar } from 'antd-mobile';
-import { CheckInPayload, ApiResponse } from '../../shared/types';
+import { CheckInPayload } from '../../shared/types';
+import { authHeader } from '../auth';
 import dayjs from 'dayjs';
 
 interface Props {
@@ -24,10 +25,12 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
 
   const fetchAttendance = async (date: dayjs.Dayjs) => {
     try {
-      const res = await fetch(`/api/personal/attendance?lineUserId=${lineUserId}&year=${date.year()}&month=${date.month() + 1}`);
+      const res = await fetch(`/api/personal/attendance?lineUserId=${lineUserId}&year=${date.year()}&month=${date.month() + 1}`, {
+        headers: { ...authHeader() }
+      });
       const data = await res.json();
       if (data.success) {
-        setAttendanceData(prev => {
+        setAttendanceData(() => {
             // Merge or replace? Replace for now as we only show current view usually
             return data.data;
         });
@@ -70,7 +73,7 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
 
       const response = await fetch('/api/check-in', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify(payload)
       });
 

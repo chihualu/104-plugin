@@ -2,6 +2,8 @@ import { PrismaClient } from '@prisma/client';
 import { Request, Response, NextFunction } from 'express';
 import { HRService } from '../services/hr.service';
 import { CompanyService } from '../services/company.service';
+import { DelegationService } from '../services/delegation.service';
+import { SchedulerService } from '../services/scheduler.service';
 import { CheckInRequestSchema, CheckInNowRequestSchema, SalaryVerifySchema, ApproveRequestSchema, LineUserIdSchema, YearSchema, MonthSchema, SalaryIdSchema } from '../schemas/api.schema';
 import axios from 'axios';
 
@@ -17,13 +19,19 @@ export class HRController {
         // logger.error({ msg: 'Failed to notify Go scheduler', taskId, error: e.message });
     }
   }
+
+  // 授權檢查：本人或已被授權者，可「以 lineUserId 身分」操作。
+  // 注意：薪資相關端點不使用此檢查，維持「僅本人」。
+  private static async canAct(req: Request, lineUserId: string): Promise<boolean> {
+    return !!req.user && await DelegationService.canActAs(req.user.lineUserId, lineUserId);
+  }
   
-  static async checkIn(req: Request, res: Response, next: NextFunction) {
+  static async checkIn(req: Request, res: Response, _next: NextFunction) {
     try {
         const payload = CheckInRequestSchema.parse(req.body);
         const lineUserId = LineUserIdSchema.parse(req.body.lineUserId);
         
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
 
         res.setHeader('Content-Type', 'application/x-ndjson');
         res.setHeader('Cache-Control', 'no-cache');
@@ -31,7 +39,7 @@ export class HRController {
 
         await HRService.applyCheckIn(lineUserId, payload, (data) => {
             res.write(JSON.stringify(data) + '\n');
-        });
+        }, req.user?.lineUserId);
         res.end();
     } catch (e: any) {
         if (!res.headersSent) res.status(400).json({ success: false, message: e.message });
@@ -44,8 +52,8 @@ export class HRController {
     try {
         const payload = CheckInNowRequestSchema.parse(req.body);
         const lineUserId = LineUserIdSchema.parse(req.body.lineUserId);
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
-        await HRService.checkInNow(lineUserId, payload);
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
+        await HRService.checkInNow(lineUserId, payload, req.user?.lineUserId);
         res.json({ success: true });
     } catch (e) { next(e); }
   }
@@ -65,6 +73,16 @@ export class HRController {
 
         const result = await HRService.executeScheduledTask(taskId);
         res.json(result);
+    } catch (e) { next(e); }
+  }
+
+  static async runMonthlyAttendanceCheck(_req: Request, res: Response, next: NextFunction) {
+    try {
+        // 觸發月度出勤檢查：長時間任務，fire-and-forget 避免請求逾時，立即回應。
+        SchedulerService.runMonthlyCheck().catch((err: any) => {
+            console.error('Monthly check background task failed', err);
+        });
+        res.json({ success: true, message: 'Monthly check triggered' });
     } catch (e) { next(e); }
   }
 
@@ -123,7 +141,7 @@ export class HRController {
         const year = YearSchema.parse(req.query.year);
         const month = MonthSchema.parse(req.query.month);
 
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
 
         const data = await HRService.getTeamAttendance(lineUserId, year, month);
         res.json({ success: true, data });
@@ -136,7 +154,7 @@ export class HRController {
         const year = YearSchema.parse(req.query.year);
         const month = MonthSchema.parse(req.query.month);
 
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
 
         const data = await HRService.getPersonalAttendance(lineUserId, year, month);
         res.json({ success: true, data });
@@ -146,7 +164,7 @@ export class HRController {
   static async getLeaveStatus(req: Request, res: Response, next: NextFunction) {
     try {
         const lineUserId = LineUserIdSchema.parse(req.query.lineUserId);
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
         const data = await HRService.getLeaveStatus(lineUserId);
         res.json({ success: true, data });
     } catch (e) { next(e); }
@@ -155,18 +173,18 @@ export class HRController {
   static async getAuditList(req: Request, res: Response, next: NextFunction) {
     try {
         const lineUserId = LineUserIdSchema.parse(req.query.lineUserId);
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
         const data = await HRService.getAuditList(lineUserId);
         res.json({ success: true, data });
     } catch (e) { next(e); }
   }
 
-  static async approveWorkflows(req: Request, res: Response, next: NextFunction) {
+  static async approveWorkflows(req: Request, res: Response, _next: NextFunction) {
     try {
         const { approvalKeys } = ApproveRequestSchema.parse(req.body);
         const lineUserId = LineUserIdSchema.parse(req.body.lineUserId);
 
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden: User mismatch' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
 
         res.setHeader('Content-Type', 'application/x-ndjson');
         res.setHeader('Cache-Control', 'no-cache');
@@ -174,7 +192,7 @@ export class HRController {
 
         await HRService.approveWorkflows(lineUserId, approvalKeys, (data) => {
             res.write(JSON.stringify(data) + '\n');
-        });
+        }, req.user?.lineUserId);
         res.end();
     } catch (e: any) {
         if (!res.headersSent) res.status(400).json({ success: false, message: e.message });
@@ -183,7 +201,7 @@ export class HRController {
     }
   }
 
-  static async getUsagesStats(req: Request, res: Response, next: NextFunction) {
+  static async getUsagesStats(_req: Request, res: Response, next: NextFunction) {
     try {
         const data = await HRService.getUsagesStats();
         res.json({ success: true, data });
@@ -197,7 +215,7 @@ export class HRController {
         const cursor = req.query.cursor ? parseInt(req.query.cursor as string) : undefined;
         const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
 
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
 
         const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
         if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
@@ -245,7 +263,7 @@ export class HRController {
         const { lineUserId, schedules } = req.body; 
         // schedules: [{ type: 'CHECK_IN'|'CHECK_OUT', date: 'YYYY-MM-DD', timeRange: ['HH:mm', 'HH:mm'], lat, lng }]
         
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
 
         const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
         if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
@@ -283,7 +301,7 @@ export class HRController {
             const startOfDay = new Date(scheduledAt.getFullYear(), scheduledAt.getMonth(), scheduledAt.getDate());
             const endOfDay = new Date(scheduledAt.getFullYear(), scheduledAt.getMonth(), scheduledAt.getDate(), 23, 59, 59);
 
-            const count = await prisma.scheduledTask.count({
+            await prisma.scheduledTask.count({
                 where: {
                     userId: user.id,
                     scheduledAt: { gte: startOfDay, lte: endOfDay },
@@ -337,7 +355,7 @@ export class HRController {
   static async cancelSchedule(req: Request, res: Response, next: NextFunction) {
     try {
         const { lineUserId, taskId } = req.body;
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
 
         const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
         if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
@@ -356,7 +374,7 @@ export class HRController {
   static async cancelAllSchedules(req: Request, res: Response, next: NextFunction) {
     try {
         const { lineUserId } = req.body;
-        if (req.user && req.user.lineUserId !== lineUserId) return res.status(403).json({ success: false, message: 'Forbidden' });
+        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
 
         const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
         if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
