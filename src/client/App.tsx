@@ -160,7 +160,7 @@ export const App = () => {
       {actingAs && (
         <div style={{ position: 'sticky', top: 0, zIndex: 1000, background: '#E67E22', color: '#fff', padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, fontWeight: 'bold' }}>
           <span>⚠️ 代理中：{actingAs.empId}（薪資/設定仍為本人）</span>
-          <a style={{ color: '#fff', textDecoration: 'underline' }} onClick={() => setActingAs(null)}>退出</a>
+          <button type="button" onClick={() => setActingAs(null)} style={{ color: '#fff', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', padding: 0 }}>退出</button>
         </div>
       )}
       {state === 'INIT' && <InitPage debugMsg={debugMsg} />}
