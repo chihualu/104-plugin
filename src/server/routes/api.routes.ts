@@ -31,7 +31,7 @@ router.post('/internal/execute-task', internalAuth, HRController.executeSchedule
 router.post('/internal/monthly-check', internalAuth, HRController.runMonthlyAttendanceCheck);
 
 // HR Routes
-router.use(authenticate); // Attempt to parse token
+router.use(authenticate); // Enforce JWT on every route below (401 if missing/invalid)
 
 router.post('/check-in', HRController.checkIn);
 router.post('/check-in/now', HRController.checkInNow);

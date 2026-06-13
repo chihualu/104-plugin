@@ -31,7 +31,11 @@ export class DelegationController {
       if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
       const { granteeEmpId, expiresAt } = req.body;
       if (!granteeEmpId) return res.status(400).json({ success: false, message: '請提供被授權人員編' });
-      const exp = expiresAt ? new Date(expiresAt) : null;
+      let exp: Date | null = null;
+      if (expiresAt) {
+        exp = new Date(expiresAt);
+        if (isNaN(exp.getTime())) return res.status(400).json({ success: false, message: 'expiresAt 日期格式無效' });
+      }
       await DelegationService.grantByEmpId(req.user.lineUserId, String(granteeEmpId), exp);
       res.json({ success: true });
     } catch (e: any) {
