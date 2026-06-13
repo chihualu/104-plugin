@@ -39,13 +39,15 @@ export const App = () => {
       error => {
         const status = error.response && error.response.status;
         if (status === 401) {
-          // Token missing/expired/invalid: drop it and send the user back to bind.
+          // Token missing/expired/invalid: drop it, exit proxy mode, send user back to bind.
           console.warn('401 detected, clearing token and redirecting to binding');
           clearToken();
+          setActingAs(null);
           setState('BINDING');
           window.history.replaceState({ page: 'BINDING' }, '', '#binding');
         } else if (status === 403) {
           console.warn('403 detected, redirecting to binding page');
+          setActingAs(null);
           setState('BINDING');
           window.history.replaceState({ page: 'BINDING' }, '', '#binding');
         }
@@ -206,6 +208,7 @@ export const App = () => {
           onBack={back} 
           onLogout={() => {
             clearToken();
+            setActingAs(null);
             setState('BINDING');
             window.history.replaceState({ page: 'BINDING' }, '', '#binding');
           }}

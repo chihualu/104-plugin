@@ -297,17 +297,9 @@ export class HRController {
             const finalLat = s.lat + offsetLat;
             const finalLng = s.lng + offsetLng;
 
-            // Validation: Daily Limit (2)
-            const startOfDay = new Date(scheduledAt.getFullYear(), scheduledAt.getMonth(), scheduledAt.getDate());
-            const endOfDay = new Date(scheduledAt.getFullYear(), scheduledAt.getMonth(), scheduledAt.getDate(), 23, 59, 59);
-
-            await prisma.scheduledTask.count({
-                where: {
-                    userId: user.id,
-                    scheduledAt: { gte: startOfDay, lte: endOfDay },
-                    status: { in: ['PENDING', 'COMPLETED'] }
-                }
-            });
+            // Note: a per-day "max 2" limit was considered but is NOT enforced here —
+            // the batch isn't committed yet, so a DB count can't see in-flight inserts.
+            // The UI limits selection to in/out per day; we rely on that for now.
 
             // We are processing a batch. If the user selected 2 types (in/out) for the same day,
             // we need to account for what we are about to insert in this transaction too.

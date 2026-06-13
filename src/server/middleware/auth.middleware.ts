@@ -32,6 +32,8 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
 export const internalAuth = (req: Request, res: Response, next: NextFunction) => {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) return next();
-  if (req.headers['x-internal-secret'] === secret) return next();
+  const provided = req.headers['x-internal-secret'];
+  const value = Array.isArray(provided) ? provided[0] : provided;
+  if (value === secret) return next();
   return res.status(403).json({ success: false, message: 'Forbidden: invalid internal secret' });
 };

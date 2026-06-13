@@ -6,6 +6,7 @@ import { HRService } from './hr.service';
 const prisma = new PrismaClient();
 
 export class SchedulerService {
+  private static monthlyCheckRunning = false;
 
   static init() {
     // Both scheduled-task execution AND the monthly attendance check are triggered
@@ -17,6 +18,13 @@ export class SchedulerService {
   }
 
   static async runMonthlyCheck() {
+      // In-process guard: the endpoint could be triggered twice (e.g. Go retry);
+      // skip overlapping runs so we don't double-send notifications.
+      if (SchedulerService.monthlyCheckRunning) {
+          logger.warn('Monthly check already running; skipping duplicate trigger');
+          return;
+      }
+      SchedulerService.monthlyCheckRunning = true;
       logger.info('Starting Monthly Attendance Check...');
       try {
         const users = await prisma.userBinding.findMany();
@@ -38,6 +46,8 @@ export class SchedulerService {
         logger.info('Monthly Attendance Check Completed.');
       } catch (e: any) {
           logger.error({ msg: 'Monthly check fatal error', error: e.message });
+      } finally {
+          SchedulerService.monthlyCheckRunning = false;
       }
   }
 }

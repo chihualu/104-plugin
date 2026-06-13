@@ -3,12 +3,13 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-# Copy dependency files
-COPY go.mod go.sum ./
+# Build context is the repo ROOT (consistent with Dockerfile.combined), so the Go
+# module files live under src/scheduler-go.
+COPY src/scheduler-go/go.mod src/scheduler-go/go.sum ./
 RUN go mod download
 
-# Copy source code
-COPY . .
+# Copy Go source code
+COPY src/scheduler-go/ .
 
 # Build
 RUN go build -o scheduler .
