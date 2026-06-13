@@ -69,9 +69,9 @@ export default function DelegatePage({ onBack, onEnterProxy }: Props) {
             <Empty description='目前沒有人授權你代理' />
           ) : (
             <List>
-              {actingFor.map((a, i) => (
+              {actingFor.map((a) => (
                 <List.Item
-                  key={i}
+                  key={a.granterLineUserId}
                   extra={
                     <Button size='small' color='primary' onClick={() => onEnterProxy({ lineUserId: a.granterLineUserId, empId: a.granterEmpId })}>
                       代理
@@ -98,9 +98,9 @@ export default function DelegatePage({ onBack, onEnterProxy }: Props) {
             <Empty description='尚未授權任何人' />
           ) : (
             <List>
-              {granted.map((g, i) => (
+              {granted.map((g) => (
                 <List.Item
-                  key={i}
+                  key={g.granteeLineUserId}
                   extra={
                     <Button size='small' color='danger' fill='outline' onClick={() => onRevoke(g.granteeLineUserId, g.granteeEmpId)}>
                       撤銷

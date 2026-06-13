@@ -37,6 +37,29 @@ export class DelegationService {
   }
 
   /**
+   * 驗證 actor 可否操作 target，並回傳 target 的 UserBinding（否則 null）。
+   * 比 canActAs 多回傳 binding，讓呼叫端不必再查一次 target（省一次 DB round-trip）。
+   */
+  static async resolveActable(actorLineUserId: string, targetLineUserId: string) {
+    if (!actorLineUserId || !targetLineUserId) return null;
+    const target = await prisma.userBinding.findUnique({ where: { lineUserId: targetLineUserId } });
+    if (!target) return null;
+    if (actorLineUserId === targetLineUserId) return target; // 本人
+    const actor = await prisma.userBinding.findUnique({ where: { lineUserId: actorLineUserId } });
+    if (!actor) return null;
+    const now = new Date();
+    const delegation = await prisma.delegation.findFirst({
+      where: {
+        granterId: target.id,
+        granteeId: actor.id,
+        active: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+    });
+    return delegation ? target : null;
+  }
+
+  /**
    * 被代理人(granter) 授權 操作者(grantee) 代為操作（由 granter 本人發起，知情同意）。
    * 雙方都必須已綁定本系統。
    */

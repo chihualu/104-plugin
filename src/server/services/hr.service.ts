@@ -6,6 +6,7 @@ import { CompanyService } from './company.service';
 import { HR104Adapter } from '../adapters/hr104.adapter';
 import { logger } from '../utils/logger';
 import { LineBotService } from './lineBot.service';
+import { DelegationService } from './delegation.service';
 
 const prisma = new PrismaClient();
 
@@ -45,6 +46,11 @@ export class HRService {
     if (progressCallback) progressCallback({ type: 'start', total: dates.length });
 
     for (const [index, date] of dates.entries()) {
+        // 代理操作：每筆前重新確認授權仍有效（撤銷後立即停止）。本人 canActAs 短路、零成本。
+        if (actorLineUserId && !(await DelegationService.canActAs(actorLineUserId, lineUserId))) {
+            if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: dates.length, key: date, status: 'error', error: '代理授權已撤銷，停止後續' });
+            break;
+        }
         try {
             await HR104Adapter.applyCheckInForm(creds, {
                 worksheetId, date, startTime: fmtStart, endTime: fmtEnd, reason
@@ -435,6 +441,11 @@ export class HRService {
     if (progressCallback) progressCallback({ type: 'start', total: approvalKeys.length });
 
     for (const [index, key] of approvalKeys.entries()) {
+        // 代理操作：每筆前重新確認授權仍有效（撤銷後立即停止）。本人 canActAs 短路、零成本。
+        if (actorLineUserId && !(await DelegationService.canActAs(actorLineUserId, lineUserId))) {
+            if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'error', error: '代理授權已撤銷，停止後續' });
+            break;
+        }
         try {
             await HR104Adapter.approveWorkflow(creds, key);
             successCount++;

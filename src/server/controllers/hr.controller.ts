@@ -79,9 +79,7 @@ export class HRController {
   static async runMonthlyAttendanceCheck(_req: Request, res: Response, next: NextFunction) {
     try {
         // 觸發月度出勤檢查：長時間任務，fire-and-forget 避免請求逾時，立即回應。
-        SchedulerService.runMonthlyCheck().catch((err: any) => {
-            console.error('Monthly check background task failed', err);
-        });
+        void SchedulerService.runMonthlyCheck();
         res.json({ success: true, message: 'Monthly check triggered' });
     } catch (e) { next(e); }
   }
@@ -215,10 +213,8 @@ export class HRController {
         const cursor = req.query.cursor ? parseInt(req.query.cursor as string) : undefined;
         const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
 
-        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
-
-        const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
-        if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
+        const user = await DelegationService.resolveActable(req.user?.lineUserId, lineUserId);
+        if (!user) return res.status(403).json({ success: false, message: 'Forbidden: 無權操作此帳號或對方未綁定' });
 
         const where: any = { userId: user.id };
         if (status) {
@@ -263,10 +259,8 @@ export class HRController {
         const { lineUserId, schedules } = req.body; 
         // schedules: [{ type: 'CHECK_IN'|'CHECK_OUT', date: 'YYYY-MM-DD', timeRange: ['HH:mm', 'HH:mm'], lat, lng }]
         
-        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
-
-        const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
-        if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
+        const user = await DelegationService.resolveActable(req.user?.lineUserId, lineUserId);
+        if (!user) return res.status(403).json({ success: false, message: 'Forbidden: 無權操作此帳號或對方未綁定' });
 
         // Server-side per-day limit (max 2 per day: in + out). Callers can bypass
         // the UI, so enforce it here at least per-request.
@@ -359,10 +353,8 @@ export class HRController {
   static async cancelSchedule(req: Request, res: Response, next: NextFunction) {
     try {
         const { lineUserId, taskId } = req.body;
-        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
-
-        const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
-        if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
+        const user = await DelegationService.resolveActable(req.user?.lineUserId, lineUserId);
+        if (!user) return res.status(403).json({ success: false, message: 'Forbidden: 無權操作此帳號或對方未綁定' });
 
         const task = await prisma.scheduledTask.update({
             where: { id: taskId, userId: user.id },
@@ -378,10 +370,8 @@ export class HRController {
   static async cancelAllSchedules(req: Request, res: Response, next: NextFunction) {
     try {
         const { lineUserId } = req.body;
-        if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
-
-        const user = await prisma.userBinding.findUnique({ where: { lineUserId } });
-        if (!user) return res.status(401).json({ success: false, message: 'User not bound' });
+        const user = await DelegationService.resolveActable(req.user?.lineUserId, lineUserId);
+        if (!user) return res.status(403).json({ success: false, message: 'Forbidden: 無權操作此帳號或對方未綁定' });
 
         const pendingTasks = await prisma.scheduledTask.findMany({
             where: { userId: user.id, status: 'PENDING' },
