@@ -1,0 +1,8 @@
+# 本地 `wrangler dev` 用的機密（複製成 .dev.vars，.dev.vars 已被 gitignore）。
+# 正式環境用 `wrangler secret put` 設定，不要用這個檔。
+ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000"
+JWT_SECRET="local-dev-jwt-secret-change-me"
+LINE_CHANNEL_ACCESS_TOKEN=""
+LINE_CHANNEL_SECRET=""
+COMPANY_CONFIG_JSON=""
+ADMIN_SECRET="local-admin-secret"

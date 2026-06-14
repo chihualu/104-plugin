@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+.wrangler-build/
+*.log
+.dev.vars
+.admin-secret
+d1-import.sql
+worker-configuration.d.ts

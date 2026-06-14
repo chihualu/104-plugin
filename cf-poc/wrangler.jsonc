@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cf-poc-104",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-06-01",
+  // connect() TCP socket 不需要 nodejs_compat，內建於 workers runtime。
+  // wrangler dev（本地 miniflare/workerd）支援 TCP socket，可直接本地驗證。
+  "observability": { "enabled": false }
+}

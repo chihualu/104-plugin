@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    // 執行時型別來自 wrangler 產生的 worker-configuration.d.ts（已涵蓋 D1/DO/sockets 等），
+    // 不再用 @cloudflare/workers-types，避免全域型別重複宣告。
+    "types": [],
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts", "worker-configuration.d.ts"]
+}

@@ -1,0 +1,8 @@
+# Cloudflare Workers Assets / Pages 會套用這份標頭規則到靜態回應（含 SPA 的 index.html）。
+# Vite build 會把 public/_headers 複製到 dist/_headers。
+# 內容由原 src/server/index.ts 的 helmet() CSP 1:1 移植（Workers 上 helmet 不適用，改用 _headers）。
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.line-scdn.net https://*.line.me https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: https://*.line-scdn.net https://*.openstreetmap.org https://cdnjs.cloudflare.com; connect-src 'self' https://*.line.me https://*.openstreetmap.org https://liffsdk.line-scdn.net; frame-src 'self' https://static.line-scdn.net
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: no-referrer
