@@ -1,0 +1,56 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ehr-104",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  // 正式只走 Custom Domain，不開 workers.dev 公開網址。
+  "workers_dev": false,
+  "routes": [{ "pattern": "104.chihualu.com", "custom_domain": true }],
+  // nodejs_compat：讓 cheerio / fast-xml-parser / Buffer 等在 Workers 上可用。
+  // connect() socket 本身不需要，但 cheerio 需要。
+  "compatibility_flags": ["nodejs_compat"],
+
+  // 靜態資源：Vite build 出來的 SPA（dist/）。Worker 先跑，非 /api、/callback 的
+  // 路徑 fallback 給 ASSETS（SPA → index.html）。
+  // 部署前先在 repo 根目錄 `npm run build` 產生 dist/。
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // /api 與 /callback 一律先進 Worker；其餘路徑先試靜態資源（SPA → index.html）。
+    "run_worker_first": ["/api/*", "/callback"]
+  },
+
+  // D1：Prisma/Postgres 的替身。database_id 用 `wrangler d1 create ehr-104` 後填入。
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ehr-104",
+      "database_id": "e7ed907c-504f-4c78-9d1e-e242489f6dca",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Durable Object：取代 Go 的 in-memory time.AfterFunc 計時器。
+  // 每個排程任務一個 DO（以 task:{id} 命名），用持久化 alarm 觸發，秒級精度。
+  "durable_objects": {
+    "bindings": [{ "name": "SCHEDULE_DO", "class_name": "ScheduleAlarmDO" }]
+  },
+  // SQLite-backed DO（2025 起免費方案可用）。
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ScheduleAlarmDO"] }],
+
+  // Cron Triggers（UTC）：
+  //   0 16 * * *  → 每日 00:00 台北時間：清理（過期 PENDING、刪除 CANCELLED）
+  //   0 2 25 * *  → 每月 25 號 10:00 台北時間：出勤異常月檢查
+  "triggers": {
+    "crons": ["0 16 * * *", "0 2 25 * *"]
+  },
+
+  "observability": { "enabled": true },
+
+  // 非機密設定可放這裡；機密（ENCRYPTION_KEY/JWT_SECRET/LINE_*）用 `wrangler secret put`。
+  "vars": {
+    "MONTHLY_CHECK_CRON": "0 2 25 * *",
+    "DAILY_CLEAN_CRON": "0 16 * * *"
+  }
+}

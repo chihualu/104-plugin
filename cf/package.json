@@ -1,0 +1,26 @@
+{
+  "name": "ehr-104-cf",
+  "private": true,
+  "version": "1.0.0",
+  "description": "104 eHR LIFF app — all-Cloudflare (Workers + Hono + D1 + Durable Objects)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply ehr-104 --local",
+    "db:migrate:remote": "wrangler d1 migrations apply ehr-104 --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250601.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.20.0"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "fast-xml-parser": "^5.3.4",
+    "hono": "^4.6.0",
+    "jose": "^5.9.0",
+    "zod": "^4.3.6"
+  }
+}
