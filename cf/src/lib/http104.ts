@@ -31,6 +31,10 @@ export interface Http104Request {
   body?: string;
   /** 整體逾時（ms），預設 20000。 */
   timeoutMs?: number;
+  /** 連線建立逾時（ms），預設 8000。逾時視為可重試的連線失敗，讓重試快速進行。 */
+  connectTimeoutMs?: number;
+  /** 總嘗試次數（含首次），預設 3。只在「連線建立階段」失敗時重試（此時尚未送出，安全）。 */
+  retries?: number;
 }
 
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
@@ -68,13 +72,37 @@ function dechunk(body: Uint8Array): Uint8Array<ArrayBuffer> {
   return result;
 }
 
+function markRetryable(e: unknown): Error {
+  const err = e instanceof Error ? e : new Error(String(e));
+  (err as any).retryable = true;
+  return err;
+}
+
+/** Promise 加逾時保護。 */
+function raceTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  const to = new Promise<never>((_, rej) => {
+    t = setTimeout(() => rej(new Error(label)), ms);
+  });
+  return Promise.race([p, to]).finally(() => {
+    if (t) clearTimeout(t);
+  }) as Promise<T>;
+}
+
 async function doRequest(opts: Http104Request): Promise<Http104Response> {
   const enc = new TextEncoder();
   const socket = connect(
     { hostname: opts.host, port: opts.port },
     { secureTransport: 'on', allowHalfOpen: false },
   );
-  await socket.opened;
+
+  // 連線建立階段：失敗/逾時 → 標記可重試（此時還沒送出任何 bytes，重試不會重複打卡）。
+  try {
+    await raceTimeout(socket.opened, opts.connectTimeoutMs ?? 8000, 'socket connect timeout');
+  } catch (e) {
+    try { await socket.close(); } catch { /* ignore */ }
+    throw markRetryable(e);
+  }
 
   try {
     const bodyBytes = opts.body != null ? enc.encode(opts.body) : new Uint8Array(0);
@@ -148,16 +176,27 @@ async function doRequest(opts: Http104Request): Promise<Http104Response> {
   }
 }
 
-/** 發一個 HTTP/1.1 請求（含逾時保護）。 */
+/**
+ * 發一個 HTTP/1.1 請求（含逾時 + 連線失敗重試）。
+ * 只在「連線建立階段」失敗時重試——那代表尚未送出任何資料，重試安全、不會重複打卡。
+ * 連線成功後的 write/read 失敗一律不重試，避免重複送出。
+ */
 export async function http104(opts: Http104Request): Promise<Http104Response> {
   const timeoutMs = opts.timeoutMs ?? 20000;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`104 request timeout after ${timeoutMs}ms`)), timeoutMs);
-  });
-  try {
-    return await Promise.race([doRequest(opts), timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
+  const attempts = Math.max(1, opts.retries ?? 3);
+  let lastErr: unknown;
+
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await raceTimeout(doRequest(opts), timeoutMs, `104 request timeout after ${timeoutMs}ms`);
+    } catch (e) {
+      lastErr = e;
+      const retryable = !!(e as any)?.retryable;
+      if (!retryable || i === attempts) break;
+      // backoff + 抖動：避開尖峰時大量 alarm 同時重試造成的二次壅塞。
+      const wait = 300 * i + Math.floor(Math.random() * 500);
+      await new Promise((r) => setTimeout(r, wait));
+    }
   }
+  throw lastErr;
 }

@@ -3,7 +3,7 @@ import liff from '@line/liff';
 import axios from 'axios';
 import { ApiResponse } from '../shared/types';
 import FullScreenLoading from './components/FullScreenLoading';
-import { setToken, clearToken } from './auth';
+import { setToken, clearToken, getLineUid, setLineUid, clearLineUid } from './auth';
 
 // Lazy load pages
 const InitPage = lazy(() => import('./pages/InitPage'));
@@ -105,6 +105,16 @@ export const App = () => {
 
         await liff.init({ liffId });
 
+        // PWA/standalone：LIFF 的 access token 在 app 關閉後即失效，會逼每次重做 LINE 登入。
+        // 若本機已記住 lineUserId，直接用它走 check-binding（公開端點、會回新的 7 天 token），
+        // 完全略過 liff.login()。只有從沒登入過（無快取）時才走 LINE 登入。
+        const cachedUid = getLineUid();
+        if (cachedUid) {
+          setLineUserId(cachedUid);
+          checkBinding(cachedUid);
+          return;
+        }
+
         if (!liff.isLoggedIn()) {
           liff.login();
           return;
@@ -115,6 +125,7 @@ export const App = () => {
 
         if (userId) {
             setLineUserId(userId);
+            setLineUid(userId); // 記住，下次開啟免 LINE 登入
             checkBinding(userId);
         }
 
@@ -208,6 +219,7 @@ export const App = () => {
           onBack={back} 
           onLogout={() => {
             clearToken();
+            clearLineUid(); // 完整登出：清掉快取，下次開啟回到 LINE 登入
             setActingAs(null);
             setState('BINDING');
             window.history.replaceState({ page: 'BINDING' }, '', '#binding');
