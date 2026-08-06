@@ -176,6 +176,19 @@ export async function updateTaskStatus(
     .run();
 }
 
+/**
+ * 標記終局失敗。只動仍是 PENDING 的列，回傳是否真的有更新到。
+ * 這樣可避免：(a) 覆蓋使用者在重試期間按下的 CANCELLED；(b) DO alarm 被平台自動重投時，
+ * 把上一輪已經 COMPLETED 的任務改寫成 FAILED 並重複發失敗通知。
+ */
+export async function failPendingTask(db: D1Database, id: number, message: string): Promise<boolean> {
+  const r = await db
+    .prepare("UPDATE ScheduledTask SET status = 'FAILED', result = ?, updatedAt = ? WHERE id = ? AND status = 'PENDING'")
+    .bind(message.slice(0, 500), nowIso(), id)
+    .run();
+  return (r.meta?.changes ?? 0) > 0;
+}
+
 /** 取消單筆（含 ownership 檢查）。回傳是否真的有更新到（>0）。 */
 export async function cancelTaskOwned(db: D1Database, id: number, userId: number): Promise<boolean> {
   const r = await db
@@ -245,11 +258,14 @@ export async function findFuturePendingTasks(db: D1Database): Promise<Array<{ id
 
 // cron cleaner
 export async function expirePastPending(db: D1Database): Promise<number> {
+  // 留 1 小時緩衝：DO alarm 對連線失敗會重試到約 15 分鐘後，剛好跨過 00:00 的任務
+  // 不能被 cleaner 搶先標成 EXPIRED，否則重試成功也寫不回 COMPLETED。
+  const graceAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const r = await db
     .prepare(
       "UPDATE ScheduledTask SET status = 'EXPIRED', result = 'System Auto-Expire', updatedAt = ? WHERE status = 'PENDING' AND scheduledAt < ?",
     )
-    .bind(nowIso(), nowIso())
+    .bind(nowIso(), graceAgo)
     .run();
   return r.meta?.changes ?? 0;
 }

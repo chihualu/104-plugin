@@ -48,6 +48,13 @@ app.use(requestLogger);
 const distPath = path.join(__dirname, '../../dist');
 app.use(express.static(distPath));
 
+// 健康檢查：給 docker compose healthcheck / Cloudflare Tunnel 用。
+// 刻意放在 apiRoutes 之前且不經過 authenticate —— 它不碰資料庫也不碰 104，
+// 只回報「這個程序活著且在聽」，不會因為 DB 或 104 暫時異常而讓容器被判定不健康重啟。
+app.get('/healthz', (_req, res) => {
+  res.json({ ok: true, uptime: process.uptime() });
+});
+
 // API Routes
 app.use('/api', apiRoutes);
 

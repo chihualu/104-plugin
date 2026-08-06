@@ -29,6 +29,12 @@ WORKDIR /app
 RUN apk add --no-cache tzdata openssl
 ENV TZ=Asia/Taipei
 
+# 一定要設：logger.ts 在非 production 下會用 pino-pretty 當 transport，
+# 而 pino-pretty 是 devDependency，下面的 `npm ci --only=production` 不會裝它
+# → 沒設這行的話容器一啟動就 crash（unable to determine transport target）。
+# 只能設在 runtime stage：builder stage 的 npm ci 需要 devDependencies 才能跑 vite build。
+ENV NODE_ENV=production
+
 # Install production dependencies only
 COPY package.json package-lock.json ./
 RUN npm ci --only=production

@@ -7,6 +7,7 @@ import { LineService } from './line.service';
 import { DelegationService } from './delegation.service';
 import { logger } from '../lib/logger';
 import { TtlCache } from '../lib/cache';
+import { isRetryable } from '../lib/http104';
 import * as db from '../lib/db';
 
 const salaryCache = new TtlCache<any>(1000 * 60 * 10, 500); // 10 min
@@ -76,7 +77,26 @@ export class HRService {
     await this.logUsage(env, creds.dbUser.id, 'CHECK_IN', 1, `GPS: ${payload.lat},${payload.lng}`, actorLineUserId);
   }
 
-  static async executeScheduledTask(env: Env, taskId: number) {
+  /** 台北時間的 HH:mm:ss。 */
+  private static tpeTime(iso: string): string {
+    return new Date(iso).toLocaleTimeString('zh-TW', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'Asia/Taipei',
+    });
+  }
+
+  /**
+   * 執行一筆排程打卡。
+   *
+   * `opts.deferFailure`（由 DO alarm 傳入，且還有重試額度時為 true）：
+   * 遇到「連線階段就失敗」——104:8443 在台北上下班尖峰常態性連不上——時**不**寫 FAILED，
+   * 原樣往外拋，任務維持 PENDING，交給 DO 重新排 alarm 稍後再試。
+   * 其餘錯誤（含已送出請求後才失敗的情形）一律當場終局處理，因為重打可能變成兩筆打卡。
+   */
+  static async executeScheduledTask(env: Env, taskId: number, opts?: { deferFailure?: boolean }) {
     try {
       const task = await db.findScheduledTask(env.DB, taskId);
       if (!task || task.status !== 'PENDING') throw new Error('Task not found or not pending');
@@ -97,34 +117,52 @@ export class HRService {
         details: 'Executed successfully',
       });
 
-      const timeStr = new Date(task.scheduledAt).toLocaleTimeString('zh-TW', {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        timeZone: 'Asia/Taipei',
-      });
-      await LineService.pushMessage(env, user.lineUserId, `【預約打卡通知】\n您預約於 ${timeStr} 的自動打卡已執行成功。`);
+      // 通知失敗不能影響任務結果：卡已經打成功了，這裡再拋就會被下面的 catch 改寫成
+      // FAILED（DB 裡確實出現過 result='LINE push failed: 500' 的假失敗）。
+      try {
+        await LineService.pushMessage(
+          env,
+          user.lineUserId,
+          `【預約打卡通知】\n您預約於 ${this.tpeTime(task.scheduledAt)} 的自動打卡已執行成功。`,
+        );
+      } catch (pushErr: any) {
+        logger.warn({ msg: 'Success notify failed (task still COMPLETED)', taskId, error: pushErr?.message });
+      }
 
       logger.info({ msg: `Scheduled task ${task.id} for user ${user.empId} completed successfully` });
       return { success: true };
     } catch (e: any) {
-      await db.updateTaskStatus(env.DB, taskId, 'FAILED', e.message);
-
-      // 403（token 失效）：自動解綁並通知。
-      if (e.response && e.response.status === 403) {
-        const task = await db.findScheduledTask(env.DB, taskId);
-        const user = task ? await db.findUserById(env.DB, task.userId) : null;
-        if (user) {
-          await this.handle403(env, user.lineUserId);
-          await LineService.pushMessage(
-            env,
-            user.lineUserId,
-            `【系統通知】由於您的 104 登入憑證已失效，系統已自動解除您的帳號綁定。請重新進入 App 進行綁定，以確保後續功能正常。`,
-          );
-        }
-      }
+      if (opts?.deferFailure && isRetryable(e)) throw e;
+      await this.failScheduledTask(env, taskId, e);
       throw e;
+    }
+  }
+
+  /**
+   * 終局失敗處理：標 FAILED、403 自動解綁，並**主動推 LINE 通知**。
+   * 原本失敗是完全靜默的，使用者往往等到月底對帳才發現漏打卡——這是「預約打卡沒完成」
+   * 最難察覺的部分，所以失敗一定要讓本人當下就知道，才來得及手動補打。
+   */
+  private static async failScheduledTask(env: Env, taskId: number, e: any) {
+    const changed = await db.failPendingTask(env.DB, taskId, String(e?.message ?? e));
+    // 沒更新到 → 這筆已被取消或早就成功（平台重投 alarm）。不通知，避免假警報。
+    if (!changed) return;
+
+    const task = await db.findScheduledTask(env.DB, taskId);
+    const user = task ? await db.findUserById(env.DB, task.userId) : null;
+    if (!user) return;
+
+    const isAuthExpired = e?.response?.status === 403;
+    if (isAuthExpired) await this.handle403(env, user.lineUserId);
+
+    const msg = isAuthExpired
+      ? `【系統通知】由於您的 104 登入憑證已失效，系統已自動解除您的帳號綁定。請重新進入 App 進行綁定，以確保後續功能正常。`
+      : `【預約打卡失敗】\n您預約於 ${this.tpeTime(task!.scheduledAt)} 的自動打卡，多次重試後仍未成功。\n原因：${e?.message ?? e}\n請盡快手動打卡或申請補卡。`;
+
+    try {
+      await LineService.pushMessage(env, user.lineUserId, msg);
+    } catch (pushErr: any) {
+      logger.error({ msg: 'Failure notify failed', taskId, error: pushErr?.message });
     }
   }
 
