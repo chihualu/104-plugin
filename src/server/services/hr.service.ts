@@ -6,6 +6,14 @@ import { CompanyService } from './company.service';
 import { HR104Adapter } from '../adapters/hr104.adapter';
 import { logger } from '../utils/logger';
 import { LineBotService } from './lineBot.service';
+
+/** 網路層錯誤碼——用來區分「104 連不上」與「這張單據本身有問題」。 */
+const NETWORK_ERROR_CODES = [
+  'ECONNABORTED', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND',
+  'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT',
+];
+/** 連續這麼多筆網路層失敗就中止整批。 */
+const MAX_CONSECUTIVE_NET_FAILS = 3;
 import { DelegationService } from './delegation.service';
 
 const prisma = new PrismaClient();
@@ -487,7 +495,8 @@ export class HRService {
     const creds = await AuthService.getUserCredentials(lineUserId);
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
     let successCount = 0;
-    
+    let consecutiveNetFails = 0;
+
     if (progressCallback) progressCallback({ type: 'start', total: approvalKeys.length });
 
     for (const [index, key] of approvalKeys.entries()) {
@@ -499,9 +508,26 @@ export class HRService {
         try {
             await HR104Adapter.approveWorkflow(creds, key);
             successCount++;
+            consecutiveNetFails = 0;
             if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'success' });
         } catch (e: any) {
             if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'error', error: e.message });
+
+            // 熔斷：連續多筆都是「網路層」失敗，代表 104 當下整個不通，
+            // 硬跑完剩下的只是白等（每筆都要耗掉逾時×重試）並持續捶對方。
+            // 業務錯誤（例如單據已被簽核）不計入——那是個別單據的問題，不該中斷整批。
+            if (NETWORK_ERROR_CODES.includes(e.code)) {
+                consecutiveNetFails++;
+                if (consecutiveNetFails >= MAX_CONSECUTIVE_NET_FAILS) {
+                    logger.warn({ msg: 'Batch approval aborted: 104 unreachable', done: index + 1, total: approvalKeys.length });
+                    if (progressCallback)
+                        progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'error',
+                            error: `連續 ${consecutiveNetFails} 筆無法連線，已中止剩餘 ${approvalKeys.length - index - 1} 筆，請稍後再試` });
+                    break;
+                }
+            } else {
+                consecutiveNetFails = 0;
+            }
         }
         if (index !== approvalKeys.length - 1) await sleep(500);
     }
