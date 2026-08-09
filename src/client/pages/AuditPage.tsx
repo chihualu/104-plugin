@@ -66,7 +66,14 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
                setProgress(prev => ({
                  ...prev,
                  current: data.index,
-                 logs: [`[${data.status === 'success' ? '成功' : '失敗'}] 單據處理完成 (${data.index}/${data.total})`, ...prev.logs]
+                 // 失敗時一定要把 data.error 顯示出來：伺服器有送，之前卻被丟掉，
+                 // 導致畫面只看得到「失敗」兩個字，完全無從判斷是連線問題還是單據本身的問題。
+                 logs: [
+                   data.status === 'success'
+                     ? `[成功] 單據處理完成 (${data.index}/${data.total})`
+                     : `[失敗] (${data.index}/${data.total}) ${data.error || '未提供原因'}`,
+                   ...prev.logs,
+                 ]
                }));
             } else if (data.type === 'done') {
                Toast.show({ icon: 'success', content: `完成！成功 ${data.successCount} 筆` });
