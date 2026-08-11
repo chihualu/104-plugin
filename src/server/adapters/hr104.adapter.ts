@@ -95,6 +95,46 @@ const CONNECT_ERRORS = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH'
 /** 總嘗試次數（含第一次）。設 2 = 原始請求 + 最多 1 次重試。 */
 const MAX_ATTEMPTS = 2;
 
+/** 從 URL 取出端點名稱（.../eHRFlowMobileService.asmx/Approval → Approval）。 */
+function epName(url?: string): string {
+  return String(url || '').split('/').pop() || '?';
+}
+
+// ── 計時：每一次 104 呼叫都留下耗時紀錄，事後才有辦法回頭檢討「為什麼很慢」。
+// __t0 只在第一次設定，所以重試時記錄的是「含重試的總耗時」而不是最後一次的耗時。
+client104.interceptors.request.use((cfg: any) => {
+  if (!cfg.__t0) cfg.__t0 = Date.now();
+  return cfg;
+});
+
+client104.interceptors.response.use(
+  (res: any) => {
+    const cfg: any = res.config || {};
+    logger.info({
+      msg: '104 call',
+      ep: epName(cfg.url),
+      ms: cfg.__t0 ? Date.now() - cfg.__t0 : undefined,
+      status: res.status,
+      bytes: typeof res.data === 'string' ? res.data.length : undefined,
+      retries: cfg.__retryCount ?? 0,
+    });
+    return res;
+  },
+  (error: any) => {
+    const cfg: any = error?.config || {};
+    logger.warn({
+      msg: '104 call failed',
+      ep: epName(cfg.url),
+      ms: cfg.__t0 ? Date.now() - cfg.__t0 : undefined,
+      code: error?.code,
+      status: error?.response?.status,
+      retries: cfg.__retryCount ?? 0,
+      error: error?.message,
+    });
+    return Promise.reject(error);
+  },
+);
+
 client104.interceptors.response.use(undefined, async (error: any) => {
   const cfg = error?.config;
   if (!cfg) throw error;
@@ -544,12 +584,18 @@ export class HR104Adapter {
 
   static async approveWorkflow(auth: AuthParams, approvalKey: string) {
     // We assume the caller might pass wsdID as approvalKey initially, so we resolve it first
+    // 分段計時：一筆簽核其實是兩次 104 呼叫（先查明細取 ApprovalKey，再送簽核），
+    // 分開記錄才看得出慢在哪一段。
     let realKey = '';
+    const tKey = Date.now();
     try {
         realKey = await this.getApprovalKey(auth, approvalKey);
     } catch (e: any) {
-        throw new Error(`Get ApprovalKey failed: ${e.message}`);
+        const err: any = new Error(`Get ApprovalKey failed: ${e.message}`);
+        err.code = e.code; // 保留網路錯誤碼，讓上層的重試／熔斷判斷仍然成立
+        throw err;
     }
+    const keyMs = Date.now() - tKey;
 
     const params = new URLSearchParams();
     params.append('key', auth.token);
@@ -560,9 +606,13 @@ export class HR104Adapter {
     params.append('approvalKey', realKey);
     params.append('comment', '同意');
 
+    const tApprove = Date.now();
     const response = await client104.post(`${BASE_URL}/Approval`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const approveMs = Date.now() - tApprove;
     const jsonObj = parser.parse(response.data);
-    if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
+    const ok = jsonObj.FunctionExecResult?.IsSuccess === true;
+    logger.info({ msg: 'Approval item timing', keyMs, approveMs, totalMs: keyMs + approveMs, ok });
+    if (ok) return true;
     else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Approval failed');
   }
 

@@ -70,12 +70,23 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
                  // 導致畫面只看得到「失敗」兩個字，完全無從判斷是連線問題還是單據本身的問題。
                  logs: [
                    data.status === 'success'
-                     ? `[成功] 單據處理完成 (${data.index}/${data.total})`
-                     : `[失敗] (${data.index}/${data.total}) ${data.error || '未提供原因'}`,
+                     ? `[成功] 單據處理完成 (${data.index}/${data.total})${data.ms ? ` ${(data.ms / 1000).toFixed(1)}s` : ''}`
+                     : `[失敗] (${data.index}/${data.total})${data.ms ? ` ${(data.ms / 1000).toFixed(1)}s` : ''} ${data.error || '未提供原因'}`,
                    ...prev.logs,
                  ]
                }));
             } else if (data.type === 'done') {
+               // 把整批耗時留在畫面上（含「104 花了多久」vs「我們自己等了多久」），
+               // 使用者回報「好慢」時才有具體數字可以對。
+               if (data.totalMs) {
+                 setProgress(prev => ({
+                   ...prev,
+                   logs: [
+                     `[統計] 總計 ${(data.totalMs / 1000).toFixed(1)}s（104 ${(data.apiMs / 1000).toFixed(1)}s、間隔等待 ${(data.sleepMs / 1000).toFixed(1)}s）`,
+                     ...prev.logs,
+                   ],
+                 }));
+               }
                Toast.show({ icon: 'success', content: `完成！成功 ${data.successCount} 筆` });
                setTimeout(() => {
                  setProgress(prev => ({ ...prev, visible: false }));
