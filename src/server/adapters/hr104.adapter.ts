@@ -22,9 +22,10 @@ const parser = new XMLParser();
 const CONNECT_TIMEOUT_MS = 3000;
 /**
  * 資料閒置逾時：連上之後，兩次收到資料之間最多可以停多久。
- * 104 正常回應 40~140ms，實測最慢的冷啟動 4.6 秒，8 秒有充足餘裕。
+ * 104 正常回應 40~140ms，實測最慢的冷啟動 4.6 秒；設 15 秒是給它足夠的寬容度，
+ * 因為連線既然已經建立，慢通常代表對方正在處理而不是壞掉，等下去比重來划算。
  */
-const READ_TIMEOUT_MS = 8000;
+const READ_TIMEOUT_MS = 15000;
 
 function timeoutError(code: string, message: string): NodeJS.ErrnoException {
   const e: NodeJS.ErrnoException = new Error(message);
