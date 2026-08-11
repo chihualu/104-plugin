@@ -92,7 +92,8 @@ const MUTATING = ['/Approval', '/InsertCardData', '/RequestFormApply', '/Verific
 /** 連線建立階段的失敗——尚未送出任何資料，重送必定安全。 */
 const CONNECT_ERRORS = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT'];
 
-const MAX_ATTEMPTS = 3;
+/** 總嘗試次數（含第一次）。設 2 = 原始請求 + 最多 1 次重試。 */
+const MAX_ATTEMPTS = 2;
 
 client104.interceptors.response.use(undefined, async (error: any) => {
   const cfg = error?.config;
