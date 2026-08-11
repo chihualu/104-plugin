@@ -1,4 +1,6 @@
 import axios from 'axios';
+import https from 'https';
+import tls from 'tls';
 import { XMLParser } from 'fast-xml-parser';
 import { logger } from '../utils/logger';
 
@@ -12,10 +14,72 @@ const parser = new XMLParser();
  * 原本每個呼叫都是「15 秒逾時就直接放棄、零重試」，所以只要 104 抖一下，
  * 使用者看到的就是簽核／打卡失敗——這正是「簽核執行中 (1/17) 失敗」的成因。
  */
-// 逾時設 8 秒而非更寬鬆的值：104 正常回應 40~140ms，實測最慢的冷啟動 4.6 秒，
-// 8 秒已有充足餘裕。設太長的代價很實際——批次簽核 17 筆時，每筆逾時都要乾等，
-// 逾時 ×重試次數 ×筆數會讓整批從幾分鐘暴增到二十幾分鐘。
-const client104 = axios.create({ timeout: 8000 });
+/**
+ * 連線建立逾時：TCP + TLS 握手完成的期限。
+ * 104 正常握手 16~64ms，3 秒已經非常寬鬆。連不上就該快速失敗——批次簽核 17 筆時，
+ * 每筆多等的秒數會被放大 17 倍。
+ */
+const CONNECT_TIMEOUT_MS = 3000;
+/**
+ * 資料閒置逾時：連上之後，兩次收到資料之間最多可以停多久。
+ * 104 正常回應 40~140ms，實測最慢的冷啟動 4.6 秒，8 秒有充足餘裕。
+ */
+const READ_TIMEOUT_MS = 8000;
+
+function timeoutError(code: string, message: string): NodeJS.ErrnoException {
+  const e: NodeJS.ErrnoException = new Error(message);
+  e.code = code;
+  return e;
+}
+
+/**
+ * 把「連線逾時」和「資料逾時」分開的 agent。
+ *
+ * axios 只有單一個 `timeout` 選項（在 Node 端是 socket 閒置逾時），連線階段和等待回應
+ * 階段共用同一個門檻，而且它不是總時長上限——只要有零星位元組進來就會重置。
+ * 這裡改由 agent 自己控制：握手前用 CONNECT_TIMEOUT_MS，secureConnect 之後切換成
+ * READ_TIMEOUT_MS。axios 那邊的 timeout 必須設 0，否則它會在 'socket' 事件上
+ * 覆寫掉我們設的值。
+ *
+ * ⚠️ 兩種逾時刻意丟出不同的 code，這關係到重試安全：
+ *   - 連線逾時 → ETIMEDOUT：一個 byte 都還沒送出，重送絕對安全。
+ *   - 資料逾時 → ECONNABORTED：請求已經送出去了，104 可能已經處理完成，
+ *     所以只有唯讀端點能重試（見下方 MUTATING 清單）。若這裡也丟 ETIMEDOUT，
+ *     /Approval、/InsertCardData 就會被誤判成可安全重送 → 重複簽核／重複打卡。
+ */
+class Agent104 extends https.Agent {
+  createConnection(options: any, callback?: any): any {
+    const socket = tls.connect(options, callback);
+
+    // 連線階段必須用「自己的 setTimeout」而不是 socket.setTimeout()：
+    // tls.connect() 回傳的 TLSSocket 包著底層 net.Socket，TCP 握手完成前 socket 的
+    // 閒置計時器還沒掛上去，設了也不會觸發（實測黑洞 IP 等滿 21 秒才由 OS 回錯，
+    // 3 秒的 socket.setTimeout 完全沒作用）。
+    const connectTimer = setTimeout(() => {
+      socket.destroy(timeoutError('ETIMEDOUT', `104 connect timeout after ${CONNECT_TIMEOUT_MS}ms`));
+    }, CONNECT_TIMEOUT_MS);
+    connectTimer.unref(); // 別讓這個計時器拖住行程結束
+
+    socket.once('secureConnect', () => {
+      clearTimeout(connectTimer);
+      // 握手完成後才換手：這個階段 socket.setTimeout 的閒置計時是可靠的。
+      socket.setTimeout(READ_TIMEOUT_MS);
+    });
+    socket.once('close', () => clearTimeout(connectTimer));
+
+    socket.on('timeout', () => {
+      socket.destroy(timeoutError('ECONNABORTED', `104 read timeout after ${READ_TIMEOUT_MS}ms`));
+    });
+
+    return socket;
+  }
+}
+
+const client104 = axios.create({
+  // 必須是 0：逾時全交給 Agent104 控制，否則 axios 會覆寫 socket 上的設定。
+  timeout: 0,
+  httpsAgent: new Agent104(),
+});
 
 /**
  * 會改變狀態的端點：逾時後**不可**重試。
