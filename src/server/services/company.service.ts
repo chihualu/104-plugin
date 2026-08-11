@@ -10,12 +10,25 @@ const companyNameCache = new LRUCache<string, string>({
   ttl: 1000 * 60 * 60 * 24, // 24 hours
 });
 
+// 注意：這個 fallback 刻意「不」內建 location——預設打卡座標是各公司專屬的，
+// 硬寫一個台北座標比沒有更危險（使用者會在錯誤地點打卡而不自知）。
+// 代價是 config 檔遺失時預設 GPS 會靜默消失，所以下面缺檔一定要出聲警告。
 let APP_CONFIG: any = { default: { checkIn: { searchKeyword: '刷卡' } } };
 try {
   const configPath = path.join(__dirname, '../../../config/104.config.json');
   if (fs.existsSync(configPath)) {
     const raw = fs.readFileSync(configPath, 'utf-8');
     APP_CONFIG = JSON.parse(raw);
+    logger.info({
+      msg: 'Company config loaded',
+      companies: Array.isArray(APP_CONFIG.companies) ? APP_CONFIG.companies.length : 0,
+      hasDefaultLocation: !!APP_CONFIG.default?.location,
+    });
+  } else {
+    logger.warn({
+      msg: 'config/104.config.json 不存在，預設打卡 GPS 座標將不會提供給前端',
+      configPath,
+    });
   }
 } catch (e) { logger.warn('Config load failed, using default'); }
 
