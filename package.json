@@ -40,7 +40,7 @@
     "@line/liff": "^2.27.3",
     "@prisma/client": "^5.22.0",
     "antd-mobile": "^5.42.3",
-    "axios": "^1.13.2",
+    "axios": "^1.16.0",
     "body-parser": "^2.2.2",
     "cheerio": "^1.1.2",
     "cookie-parser": "^1.4.7",
