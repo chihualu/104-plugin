@@ -114,7 +114,10 @@ export default function LocationPicker({ value, defaultValue, onChange, onUserPi
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            // 全站是 Referrer-Policy: no-referrer（helmet 預設），但 OSM 圖磚政策規定必須帶 Referer，
+            // 沒帶會回「Access blocked」圖磚。只對圖磚放寬為送 origin（不含路徑/hash）。
+            referrerPolicy="strict-origin-when-cross-origin"
           />
           <LocationMarker position={pos} onChange={handleMapClick} />
         </MapContainer>
