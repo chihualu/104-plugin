@@ -8,10 +8,19 @@ import { rateLimit } from 'express-rate-limit';
 const router = Router();
 
 // Rate Limiters
-const apiLimiter = rateLimit({
-	windowMs: 15 * 60 * 1000, 
+// 公開端點（未登入）只能以 IP 計數。
+const publicLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000,
 	limit: 100,
-    message: { success: false, message: 'Too many requests' }
+    message: { success: false, message: '操作太頻繁，請稍後再試' }
+});
+// 登入後改以使用者計數：公司同事走同一個對外 IP，以 IP 計數會讓整間辦公室
+// 共用 100 次額度，用完後批次簽核/補打卡直接被 429 擋下，畫面就卡住。
+const userLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000,
+	limit: 300,
+	keyGenerator: (req) => `u:${req.user?.lineUserId}`,
+    message: { success: false, message: '操作太頻繁，請稍後再試' }
 });
 const authLimiter = rateLimit({
 	windowMs: 15 * 60 * 1000,
@@ -19,20 +28,19 @@ const authLimiter = rateLimit({
     message: { success: false, message: 'Too many login attempts' }
 });
 
-router.use(apiLimiter);
-
 // Auth Routes
-router.post('/bind', authLimiter, AuthController.bind);
-router.get('/check-binding', AuthController.checkBinding);
-router.get('/companies', AuthController.getCompanies);
+router.post('/bind', publicLimiter, authLimiter, AuthController.bind);
+router.get('/check-binding', publicLimiter, AuthController.checkBinding);
+router.get('/companies', publicLimiter, AuthController.getCompanies);
 
 // Internal Routes (For Go Scheduler)
 // 排程觸發已改為同程序內的 SchedulerService，不再需要 execute-task 跨程序回呼端點。
 // monthly-check 保留為手動觸發用（月檢查本身由 node-cron 在 25 號 10:00 自動執行）。
-router.post('/internal/monthly-check', internalAuth, HRController.runMonthlyAttendanceCheck);
+router.post('/internal/monthly-check', publicLimiter, internalAuth, HRController.runMonthlyAttendanceCheck);
 
 // HR Routes
 router.use(authenticate); // Enforce JWT on every route below (401 if missing/invalid)
+router.use(userLimiter);
 
 router.post('/check-in', HRController.checkIn);
 router.post('/check-in/now', HRController.checkInNow);

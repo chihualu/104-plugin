@@ -26,13 +26,16 @@ export class HRController {
         res.setHeader('Content-Type', 'application/x-ndjson');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+        // 權限檢查通過就先送出標頭：後續（讀綁定、查表單 ID）可能要等 104 好幾秒，
+        // 前端靠「多久內收到回應」判斷連線是否卡住。之後的失敗一律走串流內的 {type:'error'}。
+        res.flushHeaders();
 
         await HRService.applyCheckIn(lineUserId, payload, (data) => {
             res.write(JSON.stringify(data) + '\n');
         }, req.user?.lineUserId);
         res.end();
     } catch (e: any) {
-        if (!res.headersSent) res.status(400).json({ success: false, message: e.message });
+        if (!res.headersSent) res.status(e.status || 400).json({ success: false, message: e.message });
         else res.write(JSON.stringify({ type: 'error', message: e.message }) + '\n');
         res.end();
     }
@@ -159,13 +162,16 @@ export class HRController {
         res.setHeader('Content-Type', 'application/x-ndjson');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+        // 權限檢查通過就先送出標頭：後續（讀綁定、查表單 ID）可能要等 104 好幾秒，
+        // 前端靠「多久內收到回應」判斷連線是否卡住。之後的失敗一律走串流內的 {type:'error'}。
+        res.flushHeaders();
 
         await HRService.approveWorkflows(lineUserId, approvalKeys, (data) => {
             res.write(JSON.stringify(data) + '\n');
         }, req.user?.lineUserId);
         res.end();
     } catch (e: any) {
-        if (!res.headersSent) res.status(400).json({ success: false, message: e.message });
+        if (!res.headersSent) res.status(e.status || 400).json({ success: false, message: e.message });
         else res.write(JSON.stringify({ type: 'error', message: e.message }) + '\n');
         res.end();
     }

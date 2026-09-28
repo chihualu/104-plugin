@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button, Form, Input, Toast, Calendar, Card, NavBar, Modal, ProgressBar } from 'antd-mobile';
 import { CheckInPayload } from '../../shared/types';
 import { authHeader } from '../auth';
+import { postNdjson } from '../ndjson';
 import dayjs from 'dayjs';
 
 interface Props {
@@ -71,62 +72,30 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
         reason: reason
       };
 
-      const response = await fetch('/api/check-in', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Request failed');
-      }
-
-      if (!response.body) throw new Error('No ReadableStream');
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const data = JSON.parse(line);
-            
-            if (data.type === 'start') {
-               setProgress(prev => ({ ...prev, total: data.total }));
-            } else if (data.type === 'progress') {
-               setProgress(prev => ({
-                 ...prev,
-                 current: data.index,
-                 // 同 AuditPage：失敗原因由伺服器送來，一定要顯示，否則無從診斷。
-                 logs: [
-                   data.status === 'success'
-                     ? `[成功] 申請完成: ${data.key}`
-                     : `[失敗] ${data.key}: ${data.error || '未提供原因'}`,
-                   ...prev.logs,
-                 ]
-               }));
-            } else if (data.type === 'done') {
-               Toast.show({ icon: 'success', content: `完成！成功 ${data.successCount} 筆` });
-               setTimeout(() => {
-                 setProgress(prev => ({ ...prev, visible: false }));
-                 setDates([]);
-                 onBack();
-               }, 1500);
-            } else if (data.type === 'error') {
-               throw new Error(data.message);
-            }
-          } catch (e) { console.error('Parse JSON error', e); }
+      await postNdjson('/api/check-in', payload, (data) => {
+        if (data.type === 'start') {
+           setProgress(prev => ({ ...prev, total: data.total }));
+        } else if (data.type === 'progress') {
+           setProgress(prev => ({
+             ...prev,
+             current: data.index,
+             // 同 AuditPage：失敗原因由伺服器送來，一定要顯示，否則無從診斷。
+             logs: [
+               data.status === 'success'
+                 ? `[成功] 申請完成: ${data.key}`
+                 : `[失敗] ${data.key}: ${data.error || '未提供原因'}`,
+               ...prev.logs,
+             ]
+           }));
+        } else if (data.type === 'done') {
+           Toast.show({ icon: 'success', content: `完成！成功 ${data.successCount} 筆` });
+           setTimeout(() => {
+             setProgress(prev => ({ ...prev, visible: false }));
+             setDates([]);
+             onBack();
+           }, 1500);
         }
-      }
+      });
     } catch (err: any) {
       setProgress(prev => ({ ...prev, visible: false }));
       Toast.show({ icon: 'fail', content: err.message || '申請失敗' });

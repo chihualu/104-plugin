@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Toast, AutoCenter, CheckList, Modal, ProgressBar, NavBar } from 'antd-mobile';
 import axios from 'axios';
 import FullScreenLoading from '../components/FullScreenLoading';
-import { authHeader } from '../auth';
+import { postNdjson } from '../ndjson';
 
 interface Props {
   lineUserId: string;
@@ -35,69 +35,41 @@ export default function AuditPage({ lineUserId, onBack }: Props) {
     setProgress({ visible: true, title: '簽核執行中', current: 0, total: selectedKeys.length, logs: [] });
 
     try {
-      const response = await fetch('/api/audit/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ lineUserId, approvalKeys: selectedKeys })
-      });
-
-      if (!response.body) throw new Error('No ReadableStream');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const data = JSON.parse(line);
-            
-            if (data.type === 'start') {
-               setProgress(prev => ({ ...prev, total: data.total }));
-            } else if (data.type === 'progress') {
-               setProgress(prev => ({
-                 ...prev,
-                 current: data.index,
-                 // 失敗時一定要把 data.error 顯示出來：伺服器有送，之前卻被丟掉，
-                 // 導致畫面只看得到「失敗」兩個字，完全無從判斷是連線問題還是單據本身的問題。
-                 logs: [
-                   data.status === 'success'
-                     ? `[成功] 單據處理完成 (${data.index}/${data.total})${data.ms ? ` ${(data.ms / 1000).toFixed(1)}s` : ''}`
-                     : `[失敗] (${data.index}/${data.total})${data.ms ? ` ${(data.ms / 1000).toFixed(1)}s` : ''} ${data.error || '未提供原因'}`,
-                   ...prev.logs,
-                 ]
-               }));
-            } else if (data.type === 'done') {
-               // 把整批耗時留在畫面上（含「104 花了多久」vs「我們自己等了多久」），
-               // 使用者回報「好慢」時才有具體數字可以對。
-               if (data.totalMs) {
-                 setProgress(prev => ({
-                   ...prev,
-                   logs: [
-                     `[統計] 總計 ${(data.totalMs / 1000).toFixed(1)}s（104 ${(data.apiMs / 1000).toFixed(1)}s、間隔等待 ${(data.sleepMs / 1000).toFixed(1)}s）`,
-                     ...prev.logs,
-                   ],
-                 }));
-               }
-               Toast.show({ icon: 'success', content: `完成！成功 ${data.successCount} 筆` });
-               setTimeout(() => {
-                 setProgress(prev => ({ ...prev, visible: false }));
-                 onBack();
-               }, 1500);
-            } else if (data.type === 'error') {
-               throw new Error(data.message);
-            }
-          } catch (e) { console.error('Parse JSON error', e); }
+      await postNdjson('/api/audit/approve', { lineUserId, approvalKeys: selectedKeys }, (data) => {
+        if (data.type === 'start') {
+           setProgress(prev => ({ ...prev, total: data.total }));
+        } else if (data.type === 'progress') {
+           setProgress(prev => ({
+             ...prev,
+             current: data.index,
+             // 失敗時一定要把 data.error 顯示出來：伺服器有送，之前卻被丟掉，
+             // 導致畫面只看得到「失敗」兩個字，完全無從判斷是連線問題還是單據本身的問題。
+             logs: [
+               data.status === 'success'
+                 ? `[成功] 單據處理完成 (${data.index}/${data.total})${data.ms ? ` ${(data.ms / 1000).toFixed(1)}s` : ''}`
+                 : `[失敗] (${data.index}/${data.total})${data.ms ? ` ${(data.ms / 1000).toFixed(1)}s` : ''} ${data.error || '未提供原因'}`,
+               ...prev.logs,
+             ]
+           }));
+        } else if (data.type === 'done') {
+           // 把整批耗時留在畫面上（含「104 花了多久」vs「我們自己等了多久」），
+           // 使用者回報「好慢」時才有具體數字可以對。
+           if (data.totalMs) {
+             setProgress(prev => ({
+               ...prev,
+               logs: [
+                 `[統計] 總計 ${(data.totalMs / 1000).toFixed(1)}s（104 ${(data.apiMs / 1000).toFixed(1)}s、間隔等待 ${(data.sleepMs / 1000).toFixed(1)}s）`,
+                 ...prev.logs,
+               ],
+             }));
+           }
+           Toast.show({ icon: 'success', content: `完成！成功 ${data.successCount} 筆` });
+           setTimeout(() => {
+             setProgress(prev => ({ ...prev, visible: false }));
+             onBack();
+           }, 1500);
         }
-      }
+      });
     } catch (err: any) {
       setProgress(prev => ({ ...prev, visible: false }));
       Toast.show({ icon: 'fail', content: err.message || '簽核失敗' });
