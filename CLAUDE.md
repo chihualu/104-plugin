@@ -14,7 +14,7 @@ npx prisma generate          # regenerate Prisma client after editing prisma/sch
 npx prisma migrate dev       # create/apply a migration locally (requires running PostgreSQL)
 
 npm run dev                  # run Node server + Vite client concurrently (primary dev command)
-npm run dev:server           # server only — nodemon + tsx, watches src/server
+npm run dev:server           # server only — tsx watch (reloads on imported file changes)
 npm run dev:client           # Vite client only
 npm run build                # Vite build → dist/ (CLIENT ONLY; server is never compiled)
 npm run start                # production server: tsx src/server/index.ts (no build step)
