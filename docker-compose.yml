@@ -5,42 +5,34 @@ services:
       context: .
       dockerfile: Dockerfile.server
     restart: always
+    # 只綁 127.0.0.1：對外一律走 Cloudflare Tunnel，不在 NAS 上開公網 port。
+    # 若要暫時直連除錯，改成 "3000:3000"。
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     env_file:
       - .env
     environment:
-      # 強制指定 DATABASE_URL，因為 Docker 內部的 host 是 db
+      # 這三個寫在 environment 會蓋掉 env_file，避免 .env 設錯就整包起不來。
+      # PORT 尤其重要：src/server/index.ts 預設是 3001，跟下面的 healthcheck／port 對不上。
+      - PORT=3000
+      # Docker 內部的 DB host 是 db，不是 localhost
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
-      # 通知 Go Scheduler 的位址 (Docker 內部 hostname)
-      - SCHEDULER_URL=http://scheduler:4000
+      # 排程計時、每日清理、25 號月檢查都在這個程序內（SchedulerService），
+      # 不再有獨立的 Go scheduler 服務，也不需要 SCHEDULER_URL / NODE_SERVER_URL。
+      # cron 已在程式內指定 Asia/Taipei，TZ 只影響 log 時間顯示。
+      - TZ=Asia/Taipei
     volumes:
-      # 執行期可覆寫設定（編輯主機 ./config/104.config.json 免重建映像）
+      # 執行期可覆寫設定（編輯主機 ./config/104.config.json 免重建映像）。
+      # 注意：這個目錄必須存在且含 104.config.json，否則會蓋掉映像內的設定變成空目錄。
       - ./config:/app/config
-    depends_on:
-      db:
-        condition: service_healthy
-      scheduler:
-        condition: service_started
-    networks:
-      - app-network
-
-  scheduler:
-    container_name: 104-plugin-scheduler
-    build: 
-      context: ./src/scheduler-go
-      dockerfile: Dockerfile
-    restart: always
-    ports:
-      - "4000:4000"
-    env_file:
-      - .env
-    environment:
-      # 強制指定 DATABASE_URL (Host=db)
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      - SCHEDULER_PORT=4000
-      # 觸發 Node.js 的位址 (Host=app)
-      - NODE_SERVER_URL=http://app:3000
+    healthcheck:
+      # node 一定在（映像就是 node:20-alpine），不必額外裝 curl/wget。
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # 首次啟動要跑 prisma migrate deploy + 建立連線，給足緩衝期再開始判定。
+      start_period: 60s
     depends_on:
       db:
         condition: service_healthy
@@ -55,13 +47,42 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Asia/Taipei
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # postgres:18+ 的映像改了慣例：掛載點要是 /var/lib/postgresql（不是 .../data），
+      # 資料會放在版本專屬子目錄（/var/lib/postgresql/18/docker），方便日後 pg_upgrade。
+      # 沿用舊的 .../data 掛法在 18 上會直接啟動失敗。
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - app-network
+
+  # Cloudflare Tunnel：把 NAS 上的 app 安全地接到公網網域，
+  # 不必在路由器開 port、不必固定 IP、也不受 CGNAT 影響。
+  #
+  # 關鍵：104 的呼叫是從「這台 NAS」直接出去的，走的是你家/公司的線路，
+  # 而不是 Cloudflare 的邊緣節點——這正是這次搬遷要解決的問題。
+  # Tunnel 只負責把使用者的請求送進來，不影響對外連線的出口。
+  #
+  # 設定步驟（Cloudflare Zero Trust 後台 → Networks → Tunnels）：
+  #   1. 建立一個 tunnel，複製它的 token
+  #   2. 在 .env 加一行 TUNNEL_TOKEN=<token>
+  #   3. 在 tunnel 的 Public Hostname 設定：你的網域 → http://app:3000
+  # 沒設定 TUNNEL_TOKEN 時，用 `docker compose up app db` 跳過這個服務即可。
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: 104-plugin-tunnel
+    restart: always
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on:
+      app:
+        condition: service_healthy
     networks:
       - app-network
 

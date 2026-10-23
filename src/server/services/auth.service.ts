@@ -88,7 +88,21 @@ export class AuthService {
     if (!user || !user.companyId || !user.internalCompanyId || !user.empId) {
         throw new Error('User not bound');
     }
-    const token = decrypt(user.encryptedToken, user.iv);
+    let token: string;
+    try {
+      token = decrypt(user.encryptedToken, user.iv);
+    } catch {
+      // ENCRYPTION_KEY 換過（或遺失）→ 舊密文永遠解不開。
+      // 這不是伺服器故障，而是「這筆綁定已失效」，所以回 403：
+      // 前端的全域攔截器看到 403 會自動把使用者導到綁定頁重新輸入 104 帳密。
+      //
+      // 刻意不刪除這一列：bindUser 是以 lineUserId upsert，重新綁定會就地覆寫
+      // encryptedToken/iv 而列 id 不變，因此排程、使用紀錄、代理授權全部保留。
+      logger.warn({ msg: 'Stale binding: token undecryptable, forcing re-bind', empId: user.empId });
+      const err: any = new Error('綁定已失效，請重新綁定您的 104 帳號');
+      err.status = 403;
+      throw err;
+    }
     return {
         token,
         companyId: user.companyId,

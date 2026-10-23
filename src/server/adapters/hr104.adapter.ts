@@ -1,9 +1,160 @@
 import axios from 'axios';
+import https from 'https';
+import tls from 'tls';
 import { XMLParser } from 'fast-xml-parser';
 import { logger } from '../utils/logger';
 
 const BASE_URL = 'https://pro104.provision.com.tw:8443/wfmobileweb/Service/eHRFlowMobileService.asmx';
 const parser = new XMLParser();
+
+/**
+ * 104 專用的 axios instance（含重試）。
+ *
+ * 為什麼需要：104 這個舊系統偶發性地慢或連不上（實測冷啟動可達 4.6 秒，一般 40ms）。
+ * 原本每個呼叫都是「15 秒逾時就直接放棄、零重試」，所以只要 104 抖一下，
+ * 使用者看到的就是簽核／打卡失敗——這正是「簽核執行中 (1/17) 失敗」的成因。
+ */
+/**
+ * 連線建立逾時：TCP + TLS 握手完成的期限。
+ * 104 正常握手 16~64ms，3 秒已經非常寬鬆。連不上就該快速失敗——批次簽核 17 筆時，
+ * 每筆多等的秒數會被放大 17 倍。
+ */
+const CONNECT_TIMEOUT_MS = 3000;
+/**
+ * 資料閒置逾時：連上之後，兩次收到資料之間最多可以停多久。
+ * 104 正常回應 40~140ms，實測最慢的冷啟動 4.6 秒；設 15 秒是給它足夠的寬容度，
+ * 因為連線既然已經建立，慢通常代表對方正在處理而不是壞掉，等下去比重來划算。
+ */
+const READ_TIMEOUT_MS = 15000;
+
+function timeoutError(code: string, message: string): NodeJS.ErrnoException {
+  const e: NodeJS.ErrnoException = new Error(message);
+  e.code = code;
+  return e;
+}
+
+/**
+ * 把「連線逾時」和「資料逾時」分開的 agent。
+ *
+ * axios 只有單一個 `timeout` 選項（在 Node 端是 socket 閒置逾時），連線階段和等待回應
+ * 階段共用同一個門檻，而且它不是總時長上限——只要有零星位元組進來就會重置。
+ * 這裡改由 agent 自己控制：握手前用 CONNECT_TIMEOUT_MS，secureConnect 之後切換成
+ * READ_TIMEOUT_MS。axios 那邊的 timeout 必須設 0，否則它會在 'socket' 事件上
+ * 覆寫掉我們設的值。
+ *
+ * ⚠️ 兩種逾時刻意丟出不同的 code，這關係到重試安全：
+ *   - 連線逾時 → ETIMEDOUT：一個 byte 都還沒送出，重送絕對安全。
+ *   - 資料逾時 → ECONNABORTED：請求已經送出去了，104 可能已經處理完成，
+ *     所以只有唯讀端點能重試（見下方 MUTATING 清單）。若這裡也丟 ETIMEDOUT，
+ *     /Approval、/InsertCardData 就會被誤判成可安全重送 → 重複簽核／重複打卡。
+ */
+class Agent104 extends https.Agent {
+  createConnection(options: any, callback?: any): any {
+    const socket = tls.connect(options, callback);
+
+    // 連線階段必須用「自己的 setTimeout」而不是 socket.setTimeout()：
+    // tls.connect() 回傳的 TLSSocket 包著底層 net.Socket，TCP 握手完成前 socket 的
+    // 閒置計時器還沒掛上去，設了也不會觸發（實測黑洞 IP 等滿 21 秒才由 OS 回錯，
+    // 3 秒的 socket.setTimeout 完全沒作用）。
+    const connectTimer = setTimeout(() => {
+      socket.destroy(timeoutError('ETIMEDOUT', `104 connect timeout after ${CONNECT_TIMEOUT_MS}ms`));
+    }, CONNECT_TIMEOUT_MS);
+    connectTimer.unref(); // 別讓這個計時器拖住行程結束
+
+    socket.once('secureConnect', () => {
+      clearTimeout(connectTimer);
+      // 握手完成後才換手：這個階段 socket.setTimeout 的閒置計時是可靠的。
+      socket.setTimeout(READ_TIMEOUT_MS);
+    });
+    socket.once('close', () => clearTimeout(connectTimer));
+
+    socket.on('timeout', () => {
+      socket.destroy(timeoutError('ECONNABORTED', `104 read timeout after ${READ_TIMEOUT_MS}ms`));
+    });
+
+    return socket;
+  }
+}
+
+const client104 = axios.create({
+  // 必須是 0：逾時全交給 Agent104 控制，否則 axios 會覆寫 socket 上的設定。
+  timeout: 0,
+  httpsAgent: new Agent104(),
+});
+
+/**
+ * 會改變狀態的端點：逾時後**不可**重試。
+ * 逾時代表請求可能已經送達 104 並生效了，重送會變成重複打卡／重複簽核。
+ * 這些端點只在「連線階段就失敗」（一個 byte 都沒送出）時才重試。
+ */
+const MUTATING = ['/Approval', '/InsertCardData', '/RequestFormApply', '/Verification', '/Login'];
+
+/** 連線建立階段的失敗——尚未送出任何資料，重送必定安全。 */
+const CONNECT_ERRORS = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT'];
+
+/** 總嘗試次數（含第一次）。設 2 = 原始請求 + 最多 1 次重試。 */
+const MAX_ATTEMPTS = 2;
+
+/** 從 URL 取出端點名稱（.../eHRFlowMobileService.asmx/Approval → Approval）。 */
+function epName(url?: string): string {
+  return String(url || '').split('/').pop() || '?';
+}
+
+// ── 計時：每一次 104 呼叫都留下耗時紀錄，事後才有辦法回頭檢討「為什麼很慢」。
+// __t0 只在第一次設定，所以重試時記錄的是「含重試的總耗時」而不是最後一次的耗時。
+client104.interceptors.request.use((cfg: any) => {
+  if (!cfg.__t0) cfg.__t0 = Date.now();
+  return cfg;
+});
+
+client104.interceptors.response.use(
+  (res: any) => {
+    const cfg: any = res.config || {};
+    logger.info({
+      msg: '104 call',
+      ep: epName(cfg.url),
+      ms: cfg.__t0 ? Date.now() - cfg.__t0 : undefined,
+      status: res.status,
+      bytes: typeof res.data === 'string' ? res.data.length : undefined,
+      retries: cfg.__retryCount ?? 0,
+    });
+    return res;
+  },
+  (error: any) => {
+    const cfg: any = error?.config || {};
+    logger.warn({
+      msg: '104 call failed',
+      ep: epName(cfg.url),
+      ms: cfg.__t0 ? Date.now() - cfg.__t0 : undefined,
+      code: error?.code,
+      status: error?.response?.status,
+      retries: cfg.__retryCount ?? 0,
+      error: error?.message,
+    });
+    return Promise.reject(error);
+  },
+);
+
+client104.interceptors.response.use(undefined, async (error: any) => {
+  const cfg = error?.config;
+  if (!cfg) throw error;
+
+  const attempt = (cfg.__retryCount ?? 0) + 1;
+  if (attempt >= MAX_ATTEMPTS) throw error;
+
+  const isConnect = CONNECT_ERRORS.includes(error.code);
+  // ECONNABORTED = axios 自己的逾時：請求可能已送達，只有唯讀端點能安全重試。
+  const isTimeout = error.code === 'ECONNABORTED';
+  const isMutating = MUTATING.some((ep) => String(cfg.url || '').includes(ep));
+  const retryable = isConnect || (isTimeout && !isMutating);
+  if (!retryable) throw error;
+
+  cfg.__retryCount = attempt;
+  const wait = 400 * attempt + Math.floor(Math.random() * 400);
+  logger.warn({ msg: '104 request retry', url: cfg.url, attempt, code: error.code, waitMs: wait });
+  await new Promise((r) => setTimeout(r, wait));
+  return client104.request(cfg);
+});
 
 // Global Axios Request Logger
 axios.interceptors.request.use(request => {
@@ -53,8 +204,9 @@ export class HR104Adapter {
         'Referer': 'https://pro104.provision.com.tw:8443/wfmobileweb/Default.aspx',
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7'
-      },
-      timeout: 15000 // 15s timeout
+      }
+      // 逾時不在這裡設：交給 client104 instance（20s + 重試）統一控制。
+      // 這裡若再寫 timeout 會蓋掉 instance 的值。
     };
     if (cookies) {
       config.headers['Cookie'] = cookies;
@@ -72,7 +224,7 @@ export class HR104Adapter {
     params.append('credential', password);
 
     try {
-        const response = await axios.post(`${BASE_URL}/Login`, params.toString(), this.getAxiosConfig());
+        const response = await client104.post(`${BASE_URL}/Login`, params.toString(), this.getAxiosConfig());
         const jsonObj = parser.parse(response.data);
         const result = jsonObj.FunctionExecResult;
 
@@ -103,7 +255,7 @@ export class HR104Adapter {
   static async getCompanyList(groupUBINo: string) {
     const params = new URLSearchParams();
     params.append('groupUBINo', groupUBINo);
-    const response = await axios.post(`${BASE_URL}/GetComapnyList`, params.toString(), this.getAxiosConfig());
+    const response = await client104.post(`${BASE_URL}/GetComapnyList`, params.toString(), this.getAxiosConfig());
     const jsonObj = parser.parse(response.data);
     try {
       return JSON.parse(jsonObj.string).Tables[0].Rows;
@@ -118,7 +270,7 @@ export class HR104Adapter {
     params.append('account', auth.empId);
     params.append('language', 'zh-tw');
 
-    const response = await axios.post(`${BASE_URL}/GetRequestListByWorksheet`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/GetRequestListByWorksheet`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) return [];
@@ -136,7 +288,7 @@ export class HR104Adapter {
     params.append('LANG', 'zh-tw');
 
     try {
-        const response = await axios.post(`${BASE_URL}/GetEmployeeCalendarList`, params.toString(), this.getAxiosConfig(auth.cookies));
+        const response = await client104.post(`${BASE_URL}/GetEmployeeCalendarList`, params.toString(), this.getAxiosConfig(auth.cookies));
         const jsonObj = parser.parse(response.data);
         if (jsonObj.FunctionExecResult?.IsSuccess === false) {
             logger.error({ msg: 'GetEmployeeCalendarList API error', error: jsonObj.FunctionExecResult.ReturnMessage });
@@ -168,7 +320,7 @@ export class HR104Adapter {
     params.append('QUERY_MONTH', month);
 
     try {
-        const response = await axios.post(`${BASE_URL}/GetSubordinateCalendarList`, params.toString(), this.getAxiosConfig(auth.cookies));
+        const response = await client104.post(`${BASE_URL}/GetSubordinateCalendarList`, params.toString(), this.getAxiosConfig(auth.cookies));
         const jsonObj = parser.parse(response.data);
         if (jsonObj.FunctionExecResult?.IsSuccess === false) {
             logger.error({ msg: 'GetSubordinateCalendarList API error', error: jsonObj.FunctionExecResult.ReturnMessage });
@@ -197,7 +349,7 @@ export class HR104Adapter {
     let retries = 2;
     while (retries >= 0) {
         try {
-            const response = await axios.post(`${BASE_URL}/GetSubordinateCalendarDetail`, params.toString(), this.getAxiosConfig(auth.cookies));
+            const response = await client104.post(`${BASE_URL}/GetSubordinateCalendarDetail`, params.toString(), this.getAxiosConfig(auth.cookies));
             const jsonObj = parser.parse(response.data);
             if (jsonObj.FunctionExecResult?.IsSuccess === false) {
                 throw new Error(jsonObj.FunctionExecResult.ReturnMessage || 'API Error');
@@ -242,7 +394,7 @@ export class HR104Adapter {
     params.append('formVars', JSON.stringify(formVars));
     params.append('fileuploadid', '');
 
-    const response = await axios.post(`${BASE_URL}/RequestFormApply`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/RequestFormApply`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
     else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Apply failed');
@@ -266,7 +418,7 @@ export class HR104Adapter {
     params.append('Offset', '0');
     params.append('temperature', '');
 
-    const response = await axios.post(`${BASE_URL}/InsertCardData`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/InsertCardData`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
     else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Check-in failed');
@@ -281,7 +433,7 @@ export class HR104Adapter {
     params.append('language', 'zh-tw');
     params.append('code', code);
 
-    const response = await axios.post(`${BASE_URL}/Verification`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/Verification`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     
     if (jsonObj.FunctionExecResult?.IsSuccess === true) {
@@ -299,7 +451,7 @@ export class HR104Adapter {
     params.append('account', auth.empId);
     params.append('language', 'zh-tw');
 
-    const response = await axios.post(`${BASE_URL}/GetEmpSalaryYear`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/GetEmpSalaryYear`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) return [];
@@ -315,7 +467,7 @@ export class HR104Adapter {
     params.append('language', 'zh-tw');
     params.append('year', year);
 
-    const response = await axios.post(`${BASE_URL}/GetEmpSalaryName`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/GetEmpSalaryName`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) return [];
@@ -331,7 +483,7 @@ export class HR104Adapter {
     params.append('language', 'zh-tw');
     params.append('SALARY_CLOSE_ID', id);
 
-    const response = await axios.post(`${BASE_URL}/GetEmpSalaryData`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/GetEmpSalaryData`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) throw new Error('No data');
@@ -349,7 +501,7 @@ export class HR104Adapter {
     params.append('account', auth.empId);
     params.append('language', 'zh-tw');
 
-    const response = await axios.post(`${BASE_URL}/GetEmpLeaveOp`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/GetEmpLeaveOp`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) throw new Error('No leave data found');
@@ -375,7 +527,7 @@ export class HR104Adapter {
     params.append('empID', '');
     params.append('pointStatus', '0');
 
-    const response = await axios.post(`${BASE_URL}/GetApprovalCountGroupByWorksheet`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/GetApprovalCountGroupByWorksheet`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) return [];
@@ -400,7 +552,7 @@ export class HR104Adapter {
     params.append('pageSize', '100');
     params.append('sort', 'WORKSHEET_DATA_ID DESC');
 
-    const response = await axios.post(`${BASE_URL}/GetApprovalListByWorksheet`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/GetApprovalListByWorksheet`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) return [];
@@ -419,7 +571,7 @@ export class HR104Adapter {
     params.append('language', 'zh-tw');
     params.append('wsdID', wsdID);
 
-    const response = await axios.post(`${BASE_URL}/GetWSDShowDataByID`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const response = await client104.post(`${BASE_URL}/GetWSDShowDataByID`, params.toString(), this.getAxiosConfig(auth.cookies));
     const jsonObj = parser.parse(response.data);
     const rawJson = jsonObj.FunctionExecResult?.ReturnObject;
     if (!rawJson) throw new Error('Failed to get detail data');
@@ -432,12 +584,18 @@ export class HR104Adapter {
 
   static async approveWorkflow(auth: AuthParams, approvalKey: string) {
     // We assume the caller might pass wsdID as approvalKey initially, so we resolve it first
+    // 分段計時：一筆簽核其實是兩次 104 呼叫（先查明細取 ApprovalKey，再送簽核），
+    // 分開記錄才看得出慢在哪一段。
     let realKey = '';
+    const tKey = Date.now();
     try {
         realKey = await this.getApprovalKey(auth, approvalKey);
     } catch (e: any) {
-        throw new Error(`Get ApprovalKey failed: ${e.message}`);
+        const err: any = new Error(`Get ApprovalKey failed: ${e.message}`);
+        err.code = e.code; // 保留網路錯誤碼，讓上層的重試／熔斷判斷仍然成立
+        throw err;
     }
+    const keyMs = Date.now() - tKey;
 
     const params = new URLSearchParams();
     params.append('key', auth.token);
@@ -448,9 +606,13 @@ export class HR104Adapter {
     params.append('approvalKey', realKey);
     params.append('comment', '同意');
 
-    const response = await axios.post(`${BASE_URL}/Approval`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const tApprove = Date.now();
+    const response = await client104.post(`${BASE_URL}/Approval`, params.toString(), this.getAxiosConfig(auth.cookies));
+    const approveMs = Date.now() - tApprove;
     const jsonObj = parser.parse(response.data);
-    if (jsonObj.FunctionExecResult?.IsSuccess === true) return true;
+    const ok = jsonObj.FunctionExecResult?.IsSuccess === true;
+    logger.info({ msg: 'Approval item timing', keyMs, approveMs, totalMs: keyMs + approveMs, ok });
+    if (ok) return true;
     else throw new Error(jsonObj.FunctionExecResult?.ReturnMessage || 'Approval failed');
   }
 

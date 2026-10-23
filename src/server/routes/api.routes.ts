@@ -27,7 +27,8 @@ router.get('/check-binding', AuthController.checkBinding);
 router.get('/companies', AuthController.getCompanies);
 
 // Internal Routes (For Go Scheduler)
-router.post('/internal/execute-task', internalAuth, HRController.executeScheduledTask);
+// 排程觸發已改為同程序內的 SchedulerService，不再需要 execute-task 跨程序回呼端點。
+// monthly-check 保留為手動觸發用（月檢查本身由 node-cron 在 25 號 10:00 自動執行）。
 router.post('/internal/monthly-check', internalAuth, HRController.runMonthlyAttendanceCheck);
 
 // HR Routes

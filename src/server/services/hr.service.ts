@@ -6,6 +6,19 @@ import { CompanyService } from './company.service';
 import { HR104Adapter } from '../adapters/hr104.adapter';
 import { logger } from '../utils/logger';
 import { LineBotService } from './lineBot.service';
+
+/** 網路層錯誤碼——用來區分「104 連不上」與「這張單據本身有問題」。 */
+const NETWORK_ERROR_CODES = [
+  'ECONNABORTED', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND',
+  'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT',
+];
+/** 連續這麼多筆網路層失敗就中止整批。 */
+const MAX_CONSECUTIVE_NET_FAILS = 3;
+/**
+ * 批次處理每筆之間的間隔——刻意放慢，避免短時間對 104 送出大量請求。
+ * 17 筆會累積 8 秒，佔整批時間的比重不低，所以統計時要跟 API 耗時分開列出。
+ */
+const ITEM_DELAY_MS = 500;
 import { DelegationService } from './delegation.service';
 
 const prisma = new PrismaClient();
@@ -76,7 +89,15 @@ export class HRService {
     await this.logUsage(creds.dbUser.id, 'CHECK_IN', 1, `GPS: ${payload.lat},${payload.lng}`, actorLineUserId);
   }
 
-  static async executeScheduledTask(taskId: number) {
+  /**
+   * 執行一筆排程打卡。
+   *
+   * `opts.deferFailure`（由 SchedulerService 在還有重試額度時傳入）：
+   * 遇到「連線階段就失敗」時**不**寫 FAILED，原樣往外拋、任務維持 PENDING，
+   * 交給排程器稍後重試。其餘錯誤一律當場終局處理，因為請求可能已送達 104，
+   * 重打會變成兩筆打卡紀錄。
+   */
+  static async executeScheduledTask(taskId: number, opts?: { deferFailure?: boolean }) {
     try {
       // 1. Get Task
       const task = await prisma.scheduledTask.findUnique({ where: { id: taskId } });
@@ -113,29 +134,71 @@ export class HRService {
       });
 
       // 6. Notify User via LINE
-      const timeStr = new Date(task.scheduledAt).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      await LineBotService.pushMessage(user.lineUserId, `【預約打卡通知】\n您預約於 ${timeStr} 的自動打卡已執行成功。`);
+      // 通知失敗不能影響任務結果：卡已經打成功了，這裡再拋就會被下面的 catch 改寫成
+      // FAILED（正式資料庫裡確實出現過 result='LINE push failed: 500' 的假失敗紀錄）。
+      try {
+        await LineBotService.pushMessage(
+          user.lineUserId,
+          `【預約打卡通知】\n您預約於 ${this.tpeTime(task.scheduledAt)} 的自動打卡已執行成功。`,
+        );
+      } catch (pushErr: any) {
+        logger.warn({ msg: 'Success notify failed (task still COMPLETED)', taskId, error: pushErr.message });
+      }
 
       logger.info({ msg: `Scheduled task ${task.id} for user ${user.empId} completed successfully` });
       return { success: true };
     } catch (e: any) {
-      await prisma.scheduledTask.update({
-        where: { id: taskId },
-        data: { status: 'FAILED', result: e.message }
-      });
-
-      // Handle 403 Forbidden specifically (Token Expired)
-      if (e.response && e.response.status === 403) {
-          const task = await prisma.scheduledTask.findUnique({ where: { id: taskId } });
-          const user = await prisma.userBinding.findUnique({ where: { id: task?.userId } });
-          if (user) {
-              await this.handle403(user.lineUserId);
-              await LineBotService.pushMessage(user.lineUserId, 
-                  `【系統通知】由於您的 104 登入憑證已失效，系統已自動解除您的帳號綁定。請重新進入 App 進行綁定，以確保後續功能正常。`);
-          }
-      }
-
+      if (opts?.deferFailure && this.isConnectError(e)) throw e;
+      await this.failScheduledTask(taskId, e);
       throw e;
+    }
+  }
+
+  /** 台北時區的 HH:mm:ss（不依賴主機 TZ 設定）。 */
+  private static tpeTime(at: Date | string): string {
+    return new Date(at).toLocaleTimeString('zh-TW', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'Asia/Taipei',
+    });
+  }
+
+  /** 與 SchedulerService 同一套判準：只有「連線都還沒建立」才算重打安全。 */
+  private static isConnectError(e: any): boolean {
+    if (!e || e.response) return false;
+    return ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT'].includes(e.code);
+  }
+
+  /**
+   * 終局失敗處理：標 FAILED、403 自動解綁，並**主動推 LINE 通知**。
+   * 原本失敗是完全靜默的，使用者往往月底對帳才發現漏打卡；失敗一定要當下就讓本人知道，
+   * 才來得及手動補打。
+   */
+  private static async failScheduledTask(taskId: number, e: any) {
+    // 只動仍是 PENDING 的列：避免覆蓋使用者在重試期間按下的取消，或重複發失敗通知。
+    const updated = await prisma.scheduledTask.updateMany({
+      where: { id: taskId, status: 'PENDING' },
+      data: { status: 'FAILED', result: String(e?.message ?? e).slice(0, 500) },
+    });
+    if (updated.count === 0) return;
+
+    const task = await prisma.scheduledTask.findUnique({ where: { id: taskId } });
+    const user = task ? await prisma.userBinding.findUnique({ where: { id: task.userId } }) : null;
+    if (!user) return;
+
+    const isAuthExpired = e?.response?.status === 403;
+    if (isAuthExpired) await this.handle403(user.lineUserId);
+
+    const msg = isAuthExpired
+      ? `【系統通知】由於您的 104 登入憑證已失效，系統已自動解除您的帳號綁定。請重新進入 App 進行綁定，以確保後續功能正常。`
+      : `【預約打卡失敗】\n您預約於 ${this.tpeTime(task!.scheduledAt)} 的自動打卡，多次重試後仍未成功。\n原因：${e?.message ?? e}\n請盡快手動打卡或申請補卡。`;
+
+    try {
+      await LineBotService.pushMessage(user.lineUserId, msg);
+    } catch (pushErr: any) {
+      logger.error({ msg: 'Failure notify failed', taskId, error: pushErr.message });
     }
   }
 
@@ -437,7 +500,11 @@ export class HRService {
     const creds = await AuthService.getUserCredentials(lineUserId);
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
     let successCount = 0;
-    
+    let consecutiveNetFails = 0;
+    const itemMs: number[] = [];
+    const tBatch = Date.now();
+
+    logger.info({ msg: 'Approval batch started', total: approvalKeys.length, empId: creds.dbUser.empId });
     if (progressCallback) progressCallback({ type: 'start', total: approvalKeys.length });
 
     for (const [index, key] of approvalKeys.entries()) {
@@ -446,21 +513,64 @@ export class HRService {
             if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'error', error: '代理授權已撤銷，停止後續' });
             break;
         }
+        const tItem = Date.now();
         try {
             await HR104Adapter.approveWorkflow(creds, key);
+            const ms = Date.now() - tItem;
+            itemMs.push(ms);
             successCount++;
-            if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'success' });
+            consecutiveNetFails = 0;
+            logger.info({ msg: 'Approval progress', index: index + 1, total: approvalKeys.length, ms, status: 'success' });
+            if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'success', ms });
         } catch (e: any) {
-            if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'error', error: e.message });
+            const ms = Date.now() - tItem;
+            itemMs.push(ms);
+            logger.warn({ msg: 'Approval progress', index: index + 1, total: approvalKeys.length, ms, status: 'error', code: e.code, error: e.message });
+            if (progressCallback) progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'error', error: e.message, ms });
+
+            // 熔斷：連續多筆都是「網路層」失敗，代表 104 當下整個不通，
+            // 硬跑完剩下的只是白等（每筆都要耗掉逾時×重試）並持續捶對方。
+            // 業務錯誤（例如單據已被簽核）不計入——那是個別單據的問題，不該中斷整批。
+            if (NETWORK_ERROR_CODES.includes(e.code)) {
+                consecutiveNetFails++;
+                if (consecutiveNetFails >= MAX_CONSECUTIVE_NET_FAILS) {
+                    logger.warn({ msg: 'Batch approval aborted: 104 unreachable', done: index + 1, total: approvalKeys.length });
+                    if (progressCallback)
+                        progressCallback({ type: 'progress', index: index + 1, total: approvalKeys.length, key, status: 'error',
+                            error: `連續 ${consecutiveNetFails} 筆無法連線，已中止剩餘 ${approvalKeys.length - index - 1} 筆，請稍後再試` });
+                    break;
+                }
+            } else {
+                consecutiveNetFails = 0;
+            }
         }
-        if (index !== approvalKeys.length - 1) await sleep(500);
+        if (index !== approvalKeys.length - 1) await sleep(ITEM_DELAY_MS);
     }
 
     if (successCount > 0) {
         await this.logUsage(creds.dbUser.id, 'AUDIT', successCount, `Keys: ${approvalKeys.length}`, actorLineUserId);
     }
 
-    if (progressCallback) progressCallback({ type: 'done', successCount });
+    // 整批統計：把「104 到底花了多久」跟「我們自己 sleep 掉多久」分開，
+    // 否則看到總時間只會知道慢，看不出慢在對方還是慢在自己。
+    const totalMs = Date.now() - tBatch;
+    const apiMs = itemMs.reduce((a, b) => a + b, 0);
+    const sleepMs = Math.max(0, itemMs.length - 1) * ITEM_DELAY_MS;
+    logger.info({
+        msg: 'Approval batch finished',
+        total: approvalKeys.length,
+        processed: itemMs.length,
+        success: successCount,
+        failed: itemMs.length - successCount,
+        totalMs,
+        apiMs,
+        sleepMs,
+        avgItemMs: itemMs.length ? Math.round(apiMs / itemMs.length) : 0,
+        maxItemMs: itemMs.length ? Math.max(...itemMs) : 0,
+        minItemMs: itemMs.length ? Math.min(...itemMs) : 0,
+    });
+
+    if (progressCallback) progressCallback({ type: 'done', successCount, totalMs, apiMs, sleepMs });
   }
 
   static async getUsagesStats() {

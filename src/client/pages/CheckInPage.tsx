@@ -106,7 +106,13 @@ export default function CheckInPage({ lineUserId, onBack }: Props) {
                setProgress(prev => ({
                  ...prev,
                  current: data.index,
-                 logs: [`[${data.status === 'success' ? '成功' : '失敗'}] 申請完成: ${data.key}`, ...prev.logs]
+                 // 同 AuditPage：失敗原因由伺服器送來，一定要顯示，否則無從診斷。
+                 logs: [
+                   data.status === 'success'
+                     ? `[成功] 申請完成: ${data.key}`
+                     : `[失敗] ${data.key}: ${data.error || '未提供原因'}`,
+                   ...prev.logs,
+                 ]
                }));
             } else if (data.type === 'done') {
                Toast.show({ icon: 'success', content: `完成！成功 ${data.successCount} 筆` });

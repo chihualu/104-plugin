@@ -78,6 +78,15 @@ function markRetryable(e: unknown): Error {
   return err;
 }
 
+/**
+ * 這個錯誤是不是「連線都還沒建立就失敗」——亦即一個 byte 都還沒送出去。
+ * 只有這種失敗重打才安全（不會變成兩筆打卡紀錄）。連線成功之後的任何失敗都不算，
+ * 因為請求可能已經送達 104、只是回應沒收到。
+ */
+export function isRetryable(e: unknown): boolean {
+  return (e as any)?.retryable === true;
+}
+
 /** Promise 加逾時保護。 */
 function raceTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let t: ReturnType<typeof setTimeout> | undefined;

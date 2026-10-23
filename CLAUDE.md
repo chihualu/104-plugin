@@ -14,48 +14,47 @@ npx prisma generate          # regenerate Prisma client after editing prisma/sch
 npx prisma migrate dev       # create/apply a migration locally (requires running PostgreSQL)
 
 npm run dev                  # run Node server + Vite client concurrently (primary dev command)
-npm run dev:server           # server only — nodemon + tsx, watches src/server
+npm run dev:server           # server only — tsx watch (reloads on imported file changes)
 npm run dev:client           # Vite client only
 npm run build                # Vite build → dist/ (CLIENT ONLY; server is never compiled)
 npm run start                # production server: tsx src/server/index.ts (no build step)
 
-# Go scheduler microservice (separate process, separate module)
-cd src/scheduler-go && go run .      # or: go build -o scheduler .
+# Full stack (app + Postgres, optionally + Cloudflare Tunnel)
+docker compose up --build          # app + db + tunnel (tunnel needs TUNNEL_TOKEN)
+docker compose up -d app db        # without the tunnel
 
-# Full stack (app + Go scheduler + Postgres)
-docker compose up --build
+# One-off: pull data back from Cloudflare D1 into local Postgres
+node scripts/migrate-d1-to-pg.mjs > pg-import.sql
+docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f - < pg-import.sql
 ```
 
 **There is no test runner.** `npm test` intentionally errors. `test/api-test.ts` and `test-parse-leave.ts` are ad-hoc scripts — run a single one directly with `tsx test/api-test.ts`.
 
-**Port gotcha (read before running locally):** the values are inconsistent across the repo. `src/server/index.ts` defaults to `PORT || 3001`, but `vite.config.ts` proxies `/api` → `http://localhost:3000`, and the client itself serves on **3002** (not Vite's usual 5173). For local dev to work you must set `PORT=3000` in `.env` (as `.env.example` already does) so the Vite proxy target matches the server. Inside Docker the app listens on 3000 and the Go scheduler on 4000.
+**Port gotcha (read before running locally):** the values are inconsistent across the repo. `src/server/index.ts` defaults to `PORT || 3001`, but `vite.config.ts` proxies `/api` → `http://localhost:3000`, and the client itself serves on **3002** (not Vite's usual 5173). For local dev you must set `PORT=3000` in `.env` (as `.env.example` already does) so the Vite proxy target matches the server. Under Docker this is no longer a footgun: `docker-compose.yml` sets `PORT=3000` in the service `environment:` block, which overrides whatever `.env` says.
 
-## Architecture: three processes, one database
+## Architecture: one Node process + Postgres
 
-This is **not** a single Node app. `docker-compose.yml` runs three services that must agree on the database schema and on two callback URLs:
+`docker-compose.yml` runs two services (plus an optional Cloudflare Tunnel sidecar):
 
 | Service | Stack | Role |
 |---|---|---|
-| `app` | Node 20 / Express 5 / Prisma | Serves the React SPA + all `/api` routes. **Does every actual 104 API call.** |
-| `scheduler` | Go 1.25 / Gin / pgx | In-memory timer engine for scheduled check-ins. **Never calls 104 itself** — it only fires timers and calls back into Node. |
-| `db` | PostgreSQL 18 | Shared. Schema is owned by Prisma; Go reads the same tables with raw SQL. |
+| `app` | Node 20 / Express 5 / Prisma | Serves the React SPA + all `/api` routes, **does every 104 API call, and owns all scheduling in-process.** |
+| `db` | PostgreSQL 18 | Schema owned by Prisma. |
+| `tunnel` | `cloudflare/cloudflared` | Optional. Publishes `app:3000` to a public hostname without opening a port on the NAS. Skip with `docker compose up app db`. |
 
-`prisma/schema.prisma` is the single source of truth for the DB. The Go service reads tables with **quoted camelCase identifiers** (`"ScheduledTask"`, `"scheduledAt"`) because Prisma generates them that way, and strips `?schema=public` from `DATABASE_URL` because pgx rejects it (see `src/scheduler-go/db/db.go`).
+> **Historical note:** there used to be a third `scheduler` service written in Go that held `time.AfterFunc` timers in memory and called back into Node over HTTP, and later an all-Cloudflare port (`cf/`) that used Durable Object alarms. Both are gone from the main path — timing now lives in `SchedulerService`. Ignore any doc or comment that mentions `SCHEDULER_URL`, `NODE_SERVER_URL`, `/api/internal/execute-task`, or `src/scheduler-go/`.
 
-### The scheduled check-in flow (the subtle part — crosses all three services)
+### The scheduled check-in flow
 
-Understanding this requires reading `hr.controller.ts`, `scheduler/manager.go`, and `hr.service.ts` together:
+All in `src/server`: read `hr.controller.ts` and `scheduler.service.ts` together.
 
-1. Client → `POST /api/schedule/create`. Node (`HRController.createSchedules`) writes `ScheduledTask` rows, **randomizing the execution time within the user's requested range and jittering the GPS coords ~±10 m** so records look organic. It then fires `notifyGoScheduler(taskId)` → `POST {SCHEDULER_URL}/tasks/sync`.
-2. Go (`TaskManager.SyncTaskFromDB`) reads the row and registers an in-memory `time.AfterFunc` timer — **only if the task is `PENDING` and falls within the current calendar month.** Future-month tasks are deliberately not held in memory.
-3. When the timer fires, Go calls back → `POST {NODE_SERVER_URL}/api/internal/execute-task` with `{taskId}` (with a 3× retry).
-4. Node (`HRService.executeScheduledTask`, routed via `/api/internal/execute-task`) does the real `InsertCardData` 104 call, updates task status, writes a `UsageLog`, and pushes a LINE notification.
+1. Client → `POST /api/schedule/create`. `HRController.createSchedules` writes `ScheduledTask` rows, **randomizing the execution time within the user's requested range and jittering the GPS coords ~±10 m** so records look organic, then calls `SchedulerService.onTaskCreated(id, scheduledAt)`.
+2. `SchedulerService` runs a **rolling window**: every 60 s it loads PENDING tasks due within the next 5 minutes (plus any that are past-due within a 10-minute catch-up grace, so a restart doesn't drop punches) and arms a precise `setTimeout` for each. A dedup map prevents double-arming. Tasks further out need no special handling — a later scan picks them up, so **cross-month schedules just work**.
+3. On fire, `HRService.executeScheduledTask(taskId, { deferFailure })` does the real `InsertCardData` call, updates status, writes a `UsageLog`, and pushes a LINE notification.
 
-Cancel / cancel-all also call `notifyGoScheduler` so Go drops the timer. On startup and on the 1st of each month at 01:00, Go bulk-loads that month's PENDING tasks; a daily cleaner expires past-due PENDING tasks and deletes CANCELLED ones.
+**Retry policy (important — this is why scheduled check-ins were being missed):** 104's endpoint intermittently refuses connections. `executeScheduledTask` accepts `deferFailure`; when set and the error is a **connection-phase** failure (`ECONNREFUSED`/`ETIMEDOUT`/… — i.e. not a single byte was sent, so re-punching cannot double-record), it re-throws without marking the task FAILED and `SchedulerService` re-arms with backoff **30 s → 60 s → random ~60 s ×3**. Anything that could have reached 104 is never retried. Once retries are exhausted the task is marked FAILED **and the user gets a LINE message** — silent failures were the reason missed punches went unnoticed until month-end reconciliation.
 
-**The Node side also has a `SchedulerService` (`scheduler.service.ts`), but its per-minute `processTasks` is legacy and unused** — `init()` only wires the monthly attendance-check cron (25th, 10:00). All real task timing lives in Go now.
-
-Cross-service env vars: `SCHEDULER_URL` (Node→Go, default `http://localhost:4000`) and `NODE_SERVER_URL` (Go→Node, default `http://localhost:3000`).
+Cancel / cancel-all call `SchedulerService.cancel` / `cancelMany` to drop timers. Two `node-cron` jobs (both pinned to `Asia/Taipei` in code, not reliant on host TZ): daily 00:00 cleanup (expire past-due PENDING older than 1 h, delete CANCELLED) and the 25th 10:00 monthly attendance check.
 
 ### The 104 integration layer
 
@@ -66,8 +65,8 @@ Cross-service env vars: `SCHEDULER_URL` (Node→Go, default `http://localhost:40
 - **104 credentials** are AES-256-CBC encrypted (`src/server/encryption.ts`) and stored in `UserBinding` (`encryptedToken` + `iv` + `cookies`). App sessions are **JWT** (7-day, `auth.service.ts`).
 - `ENCRYPTION_KEY` (64-char hex = 32 bytes) and `JWT_SECRET` are **mandatory** — the server calls `process.exit(1)` on startup if either is missing/invalid.
 - `authenticate` middleware (`auth.middleware.ts`) **enforces JWT** — a missing/invalid token returns 401 (the old permissive pass-through was removed). The frontend stores the JWT (`src/client/auth.ts`), attaching it via an axios request interceptor and via `authHeader()` for the `fetch`-based streaming endpoints. Public endpoints (`bind`/`check-binding`/`companies`/`internal/execute-task`) sit *before* `router.use(authenticate)` and stay open.
+- `INTERNAL_API_SECRET` now only guards `/api/internal/monthly-check` (manual ops trigger). The `execute-task` endpoint it used to protect is gone.
 - **Delegation (act-as / proxy):** `req.user` (from JWT) is the *actor*; the `lineUserId` in the request body/query is the *target*. `HRController.canAct` → `DelegationService.canActAs(actor, target)` gates every HR endpoint (self, or an active row in the `Delegation` table). **Salary endpoints are exempt — self-only, never proxyable.** `UsageLog.actorUserId` records who actually acted. The frontend "代理模式" (`DelegatePage` + `effectiveLineUserId` in `App.tsx`) swaps the *target* `lineUserId` while the JWT stays the actor's; salary/settings pages always pass self.
-- The internal `/api/internal/execute-task` endpoint's localhost IP allowlist is still **commented out** (effectively open) — known caveat if hardening.
 
 ### Frontend
 
@@ -85,7 +84,9 @@ Streaming endpoints (`/api/check-in`, `/api/audit/approve`) respond with **NDJSO
 - Path aliases: `@/*` → `src/*` (Vite), `@server/*` / `@client/*` (tsconfig). `@` is mainly a client convention.
 - Logging is **Pino** (`src/server/utils/logger.ts`); use the structured `logger`, not `console.log`.
 - Validation is **Zod** schemas in `src/server/schemas/api.schema.ts`, parsed at the top of each controller.
-- After changing `prisma/schema.prisma`, run `npx prisma migrate dev` **and** restart the Go scheduler (it caches the schema shape in raw SQL).
+- After changing `prisma/schema.prisma`, run `npx prisma migrate dev`. The container runs `prisma migrate deploy` on start, so `docker compose up --build` applies migrations automatically.
+- `Dockerfile.server` **must** set `NODE_ENV=production` in the runtime stage: `logger.ts` uses a `pino-pretty` transport when it isn't production, but `pino-pretty` is a devDependency that `npm ci --only=production` never installs — without it the container crashes on boot.
+- The `db` volume mounts at `/var/lib/postgresql`, **not** `/var/lib/postgresql/data`. The `postgres:18+` images changed this convention; the old path fails to start.
 - CI (`.github/workflows/docker-image.yml`) builds and pushes a Docker image to GHCR on push to `main`/`master` and on `v*.*.*` tags — it does not run tests or lint.
 
-> Note: `GEMINI.md` is partially stale — it states the Go backend was removed, but it has since been re-introduced as the `scheduler` service described above. Trust this file and the code over `GEMINI.md` on the scheduler.
+> Note on `cf/`: that directory holds a complete all-Cloudflare port (Workers + Hono + D1 + Durable Objects). It is **no longer the deployment target** — Cloudflare's edge could not reach 104 reliably (~15 % of connections failed, measured against a same-moment 20/20 success rate from a Taiwan line), which is what drove the move back to self-hosting. Keep it for reference; don't treat it as live.

@@ -5,20 +5,10 @@ import { CompanyService } from '../services/company.service';
 import { DelegationService } from '../services/delegation.service';
 import { SchedulerService } from '../services/scheduler.service';
 import { CheckInRequestSchema, CheckInNowRequestSchema, SalaryVerifySchema, ApproveRequestSchema, LineUserIdSchema, YearSchema, MonthSchema, SalaryIdSchema } from '../schemas/api.schema';
-import axios from 'axios';
 
 const prisma = new PrismaClient();
-const SCHEDULER_URL = process.env.SCHEDULER_URL || 'http://localhost:4000';
 
 export class HRController {
-
-  private static async notifyGoScheduler(taskId: number) {
-    try {
-        await axios.post(`${SCHEDULER_URL}/tasks/sync`, { taskId });
-    } catch (e: any) {
-        // logger.error({ msg: 'Failed to notify Go scheduler', taskId, error: e.message });
-    }
-  }
 
   // 授權檢查：本人或已被授權者，可「以 lineUserId 身分」操作。
   // 注意：薪資相關端點不使用此檢查，維持「僅本人」。
@@ -55,24 +45,6 @@ export class HRController {
         if (!(await HRController.canAct(req, lineUserId))) return res.status(403).json({ success: false, message: 'Forbidden: 無權代理此帳號' });
         await HRService.checkInNow(lineUserId, payload, req.user?.lineUserId);
         res.json({ success: true });
-    } catch (e) { next(e); }
-  }
-
-  static async executeScheduledTask(req: Request, res: Response, next: NextFunction) {
-    try {
-        const { taskId } = req.body;
-        if (!taskId) return res.status(400).json({ success: false, message: 'Missing taskId' });
-        
-        // Security check: Only allow from localhost or specific internal secret
-        // For simplicity in this demo, we check if it's localhost
-        const remoteIp = req.socket.remoteAddress;
-        if (remoteIp !== '127.0.0.1' && remoteIp !== '::1' && remoteIp !== '::ffff:127.0.0.1') {
-            // logger.warn(`Unauthorized internal API call from ${remoteIp}`);
-            // return res.status(403).json({ success: false, message: 'Forbidden: Internal only' });
-        }
-
-        const result = await HRService.executeScheduledTask(taskId);
-        res.json(result);
     } catch (e) { next(e); }
   }
 
@@ -343,7 +315,9 @@ export class HRController {
         
         for (const data of tasksData) {
             const task = await prisma.scheduledTask.create({ data });
-            HRController.notifyGoScheduler(task.id); // Async notification
+            // 同程序直接排入計時器。落在前瞻視窗外的任務不必處理——排程器每分鐘掃描時
+            // 自然會撈到，所以跨月預約也不需要任何特別處理。
+            SchedulerService.onTaskCreated(task.id, task.scheduledAt);
         }
 
         res.json({ success: true });
@@ -361,7 +335,7 @@ export class HRController {
             data: { status: 'CANCELLED' }
         });
 
-        HRController.notifyGoScheduler(task.id);
+        SchedulerService.cancel(task.id);
 
         res.json({ success: true });
     } catch (e) { next(e); }
@@ -383,9 +357,7 @@ export class HRController {
             data: { status: 'CANCELLED' }
         });
 
-        for (const t of pendingTasks) {
-            HRController.notifyGoScheduler(t.id);
-        }
+        SchedulerService.cancelMany(pendingTasks.map((t) => t.id));
 
         res.json({ success: true });
     } catch (e) { next(e); }
